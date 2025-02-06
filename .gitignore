@@ -1,0 +1,4 @@
+raw.csv
+outputs/
+.venv/
+.DS_Store

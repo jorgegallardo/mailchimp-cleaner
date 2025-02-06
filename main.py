@@ -1,0 +1,134 @@
+import csv
+from datetime import datetime, timedelta
+import os
+from collections import defaultdict
+
+
+def get_month_end(date):
+    """Get the last day of the month for a given date."""
+    if date.month == 12:
+        next_month = date.replace(year=date.year + 1, month=1, day=1)
+    else:
+        next_month = date.replace(month=date.month + 1, day=1)
+    return next_month - timedelta(days=1)
+
+
+def get_file_name(date, index):
+    """Generate filename based on date and index."""
+    if date < datetime(2024, 10, 15):
+        return "1-pre1015.csv"
+    elif datetime(2024, 10, 15) <= date < datetime(2024, 11, 1):
+        return "2-1031.csv"
+    else:
+        return f"{index}-{date.year}-{date.month:02d}.csv"
+
+
+def process_csv(input_file, output_folder, sort_column):
+    """
+    Processes a CSV file, sorts it, and splits it into multiple files based on date ranges.
+    """
+    try:
+        with open(input_file, "r", newline="", encoding="utf-8") as infile:
+            reader = csv.DictReader(infile)
+            fieldnames = reader.fieldnames
+
+            if sort_column not in fieldnames:
+                raise ValueError(
+                    f"Sort column '{sort_column}' not found in CSV headers"
+                )
+
+            data = []
+
+            # Read and parse data
+            for row in reader:
+                try:
+                    row[sort_column] = datetime.strptime(
+                        row[sort_column], "%Y-%m-%d %H:%M:%S"
+                    )
+                    data.append(row)
+                except ValueError as e:
+                    print(
+                        f"Error converting datetime in row: {row}. Skipping. Error: {e}"
+                    )
+                    continue
+
+            sorted_data = sorted(data, key=lambda row: row[sort_column])
+
+            # Create mapping of date ranges
+            date_ranges = defaultdict(list)
+            for row in sorted_data:
+                date = row[sort_column]
+                if date < datetime(2024, 10, 15):
+                    date_ranges["1-pre1015.csv"].append(row)
+                elif datetime(2024, 10, 15) <= date < datetime(2024, 11, 1):
+                    date_ranges["2-1031.csv"].append(row)
+                else:
+                    # Format key as 'YYYY-MM' for sorting
+                    key = f"{date.year}-{date.month:02d}"
+                    date_ranges[key].append(row)
+
+            # Create the full sorted file first
+            with open(
+                os.path.join(output_folder, "0-sorted.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as outfile:
+                writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                writer.writeheader()
+                for row in sorted_data:
+                    writer.writerow(row)
+
+            # Process special files first
+            for special_file in ["1-pre1015.csv", "2-1031.csv"]:
+                if date_ranges[special_file]:
+                    with open(
+                        os.path.join(output_folder, special_file),
+                        "w",
+                        newline="",
+                        encoding="utf-8",
+                    ) as outfile:
+                        writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                        writer.writeheader()
+                        for row in date_ranges[special_file]:
+                            writer.writerow(row)
+
+            # Process monthly files starting with index 3
+            monthly_dates = sorted(
+                [
+                    k
+                    for k in date_ranges.keys()
+                    if k not in ["1-pre1015.csv", "2-1031.csv"]
+                ]
+            )
+
+            for index, month_key in enumerate(monthly_dates, start=3):
+                filename = f"{index}-{month_key}.csv"
+                with open(
+                    os.path.join(output_folder, filename),
+                    "w",
+                    newline="",
+                    encoding="utf-8",
+                ) as outfile:
+                    writer = csv.DictWriter(outfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for row in date_ranges[month_key]:
+                        writer.writerow(row)
+
+    except FileNotFoundError:
+        print(f"Error: Input file '{input_file}' not found.")
+    except PermissionError:
+        print(f"Error: Permission denied when accessing files.")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+
+if __name__ == "__main__":
+    input_csv = "raw.csv"
+    output_folder = "outputs"
+    sort_column_name = "OPTIN_TIME"
+
+    os.makedirs(output_folder, exist_ok=True)
+
+    process_csv(input_csv, output_folder, sort_column_name)
+    print(f"Data processed and saved to '{output_folder}'")
