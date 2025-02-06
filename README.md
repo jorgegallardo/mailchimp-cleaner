@@ -20,3 +20,4 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 ## version
 
 0.1.0 - initial release with basic sorting and date-based file splitting functionality
+0.1.1 - clear out columns K-BI for students and parents
