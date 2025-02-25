@@ -1,6 +1,7 @@
 import csv
 from datetime import datetime, timedelta
 import os
+import json
 from collections import defaultdict
 
 
@@ -13,10 +14,19 @@ def process_csv(input_file, output_folder, sort_column):
         between columns "Number of Students" and the second occurrence of
         "Other (please specify in Notes)".
       - Updating column F values: If the value is "United States of America", change it to "United States".
+      - Normalizing column H values (assumed to contain state info) for US rows:
+          * If column F equals "United States", then for column H, if its lowercased value
+            matches a two-letter code in mappings.json, replace it with the full state name.
+          * After that, if column H (normalized) equals "other - non-us", delete the value in column F.
+          * Finally, convert column H’s value to title case (e.g., "delaware" becomes "Delaware").
       - Writing the full sorted-and-cleaned data to a CSV file.
       - Splitting and writing data into separate files based on date ranges.
     """
     try:
+        # Load the state mappings from mappings.json (assumed to be at the project root)
+        with open("mappings.json", "r", encoding="utf-8") as mapping_file:
+            state_mappings = json.load(mapping_file)
+
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
             reader = csv.DictReader(infile)
             fieldnames = reader.fieldnames
@@ -30,7 +40,6 @@ def process_csv(input_file, output_folder, sort_column):
                 )
 
             data = []
-
             # Read and parse data, converting the sort_column to datetime
             for row in reader:
                 try:
@@ -48,22 +57,15 @@ def process_csv(input_file, output_folder, sort_column):
             sorted_data = sorted(data, key=lambda row: row[sort_column])
 
             # --- Cleaning Step: Remove values in a range of columns if column D is "Student" or "Parent" ---
-            # Ensure there are at least 4 columns so that column D exists.
             if len(fieldnames) < 4:
                 raise ValueError(
                     "CSV does not contain enough columns to check column D."
                 )
-
-            # Column D (0-indexed position 3)
             col_d_header = fieldnames[3]
-
-            # Find the index for the "Number of Students" column (assumed column K)
             try:
                 start_index = fieldnames.index("Number of Students")
             except ValueError:
                 raise ValueError("Header 'Number of Students' not found.")
-
-            # Find all occurrences of "Other (please specify in Notes)" in the headers
             other_indices = [
                 i
                 for i, header in enumerate(fieldnames)
@@ -73,28 +75,43 @@ def process_csv(input_file, output_folder, sort_column):
                 raise ValueError(
                     "Expected at least 2 occurrences of 'Other (please specify in Notes)', but found fewer."
                 )
-            # Use the second occurrence as the end index
             end_index = other_indices[1]
-
-            # For each row, if the value in column D is "Student" or "Parent",
-            # clear out every column from "Number of Students" to the second "Other (please specify in Notes)" (inclusive).
             for row in sorted_data:
                 if row[col_d_header].strip() in ["Student", "Parent"]:
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
             # --- Additional Cleaning Step: Update column F values ---
-            # Ensure there are at least 6 columns so that column F exists.
             if len(fieldnames) < 6:
                 raise ValueError(
                     "CSV does not contain enough columns to check column F."
                 )
-
-            # Column F (0-indexed position 5)
             col_f_header = fieldnames[5]
             for row in sorted_data:
                 if row[col_f_header].strip() == "United States of America":
                     row[col_f_header] = "United States"
+
+            # --- Normalizing Column H Values for US States ---
+            # Ensure there are at least 8 columns so that column H exists.
+            if len(fieldnames) < 8:
+                raise ValueError(
+                    "CSV does not contain enough columns to check column H."
+                )
+            col_h_header = fieldnames[7]
+            for row in sorted_data:
+                # Only apply normalization if column F equals "United States"
+                if row[col_f_header].strip() == "United States":
+                    state_val = row[col_h_header].strip().lower()
+                    # If the two-letter code is in our mapping, replace it with the full state name
+                    if state_val in state_mappings:
+                        normalized_state = state_mappings[state_val]
+                    else:
+                        normalized_state = state_val
+                    # Check if the normalized state is "other - non-us"; if so, clear column F
+                    if normalized_state.lower() == "other - non-us":
+                        row[col_f_header] = ""
+                    # Convert the normalized state to title case
+                    row[col_h_header] = normalized_state.title()
 
             # Create mapping of date ranges
             date_ranges = defaultdict(list)
@@ -105,11 +122,10 @@ def process_csv(input_file, output_folder, sort_column):
                 elif datetime(2024, 10, 15) <= date < datetime(2024, 11, 1):
                     date_ranges["2-1031.csv"].append(row)
                 else:
-                    # Format key as 'YYYY-MM' for sorting
                     key = f"{date.year}-{date.month:02d}"
                     date_ranges[key].append(row)
 
-            # Write the full sorted and cleaned data to a file named "0-sorted-and-cleaned.csv"
+            # Write the full sorted and cleaned data to "0-sorted-and-cleaned.csv"
             sorted_cleaned_filename = "0-sorted-and-cleaned.csv"
             with open(
                 os.path.join(output_folder, sorted_cleaned_filename),
@@ -120,7 +136,6 @@ def process_csv(input_file, output_folder, sort_column):
                 writer = csv.DictWriter(outfile, fieldnames=fieldnames)
                 writer.writeheader()
                 for row in sorted_data:
-                    # When writing, convert the datetime back to string
                     row_to_write = row.copy()
                     row_to_write[sort_column] = row_to_write[sort_column].strftime(
                         "%Y-%m-%d %H:%M:%S"
@@ -153,7 +168,6 @@ def process_csv(input_file, output_folder, sort_column):
                     if k not in ["1-pre1015.csv", "2-1031.csv"]
                 ]
             )
-
             for index, month_key in enumerate(monthly_dates, start=3):
                 filename = f"{index}-{month_key}.csv"
                 with open(
@@ -185,6 +199,5 @@ if __name__ == "__main__":
     sort_column_name = "OPTIN_TIME"
 
     os.makedirs(output_folder, exist_ok=True)
-
     process_csv(input_csv, output_folder, sort_column_name)
     print(f"Data processed and saved to '{output_folder}'")

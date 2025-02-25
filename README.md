@@ -21,4 +21,4 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 
 - 0.1.0 - initial release with basic sorting and date-based file splitting functionality
 - 0.1.1 - clear out columns K-BI for students and parents
-- 0.1.2 - replace "United States of America" to "United States"
+- 0.1.2 - replace "United States of America" with "United States", US states and other mappings, clear out country for "United States" listed as "Other - Non-US"
