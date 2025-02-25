@@ -12,6 +12,7 @@ def process_csv(input_file, output_folder, sort_column):
       - Cleaning rows where column D is "Student" or "Parent" by clearing values
         between columns "Number of Students" and the second occurrence of
         "Other (please specify in Notes)".
+      - Updating column F values: If the value is "United States of America", change it to "United States".
       - Writing the full sorted-and-cleaned data to a CSV file.
       - Splitting and writing data into separate files based on date ranges.
     """
@@ -81,6 +82,19 @@ def process_csv(input_file, output_folder, sort_column):
                 if row[col_d_header].strip() in ["Student", "Parent"]:
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
+
+            # --- Additional Cleaning Step: Update column F values ---
+            # Ensure there are at least 6 columns so that column F exists.
+            if len(fieldnames) < 6:
+                raise ValueError(
+                    "CSV does not contain enough columns to check column F."
+                )
+
+            # Column F (0-indexed position 5)
+            col_f_header = fieldnames[5]
+            for row in sorted_data:
+                if row[col_f_header].strip() == "United States of America":
+                    row[col_f_header] = "United States"
 
             # Create mapping of date ranges
             date_ranges = defaultdict(list)
