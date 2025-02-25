@@ -13,10 +13,10 @@ def process_csv(input_file, output_folder, sort_column):
       - Cleaning rows where column D is "Student" or "Parent" by clearing values
         between columns "Number of Students" and the second occurrence of
         "Other (please specify in Notes)".
-      - Updating column F values: If the value is "United States of America", change it to "United States".
-      - Normalizing column H values (assumed to contain state info) for US rows:
+      - Standardizing column F (Country) values using country_mappings.json.
+      - Normalizing column H (State) values for US rows:
           * If column F equals "United States", then for column H, if its lowercased value
-            matches a two-letter code in mappings.json, replace it with the full state name.
+            matches a two-letter code in state_mappings.json, replace it with the full state name.
           * After that, if the normalized column H equals "other - non-us", clear column F.
           * Finally, convert column H’s value to title case.
       - Email and Domain Cleaning:
@@ -24,15 +24,19 @@ def process_csv(input_file, output_folder, sort_column):
             then set column H to "Other - Non-US".
           * If column J contains "dayofai.org" (case-insensitive), clear that cell.
       - Force Column H: For any row with Country equal to "China", set column H to "Other - Non-US".
-      - Additional Adjustment: If the email (column A) contains "@qq.com", column F is "United States"
-        and column H is "Other - Non-US", then set column F to "China" and clear columns G and I.
+      - Additional Adjustment for @qq.com emails:
+          * If the email (column A) contains "@qq.com", column F is "United States" and column H is "Other - Non-US",
+            then set column F to "China" and clear columns G and I.
       - Writing the full sorted-and-cleaned data to a CSV file.
       - Splitting and writing data into separate files based on date ranges.
     """
     try:
-        # Load the state mappings from mappings.json (assumed to be at the project root)
-        with open("mappings.json", "r", encoding="utf-8") as mapping_file:
-            state_mappings = json.load(mapping_file)
+        # Load state mappings from state_mappings.json
+        with open("state_mappings.json", "r", encoding="utf-8") as sm_file:
+            state_mappings = json.load(sm_file)
+        # Load country mappings from country_mappings.json
+        with open("country_mappings.json", "r", encoding="utf-8") as cm_file:
+            country_mappings = json.load(cm_file)
 
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
             reader = csv.DictReader(infile)
@@ -87,15 +91,22 @@ def process_csv(input_file, output_folder, sort_column):
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
-            # --- Additional Cleaning Step: Update column F values ---
+            # --- Standardize Country Names using country_mappings ---
             if len(fieldnames) < 6:
                 raise ValueError(
                     "CSV does not contain enough columns to check column F."
                 )
             col_f_header = fieldnames[5]
             for row in sorted_data:
-                if row[col_f_header].strip() == "United States of America":
-                    row[col_f_header] = "United States"
+                country = row[col_f_header].strip()
+                # Do a case-insensitive lookup in country_mappings:
+                found_mapping = None
+                for key, value in country_mappings.items():
+                    if key.lower() == country.lower():
+                        found_mapping = value
+                        break
+                if found_mapping is not None:
+                    row[col_f_header] = found_mapping
 
             # --- Normalizing Column H Values for US States ---
             if len(fieldnames) < 8:
