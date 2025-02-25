@@ -17,8 +17,15 @@ def process_csv(input_file, output_folder, sort_column):
       - Normalizing column H values (assumed to contain state info) for US rows:
           * If column F equals "United States", then for column H, if its lowercased value
             matches a two-letter code in mappings.json, replace it with the full state name.
-          * After that, if column H (normalized) equals "other - non-us", delete the value in column F.
-          * Finally, convert column H’s value to title case (e.g., "delaware" becomes "Delaware").
+          * After that, if the normalized column H equals "other - non-us", clear column F.
+          * Finally, convert column H’s value to title case.
+      - Email and Domain Cleaning:
+          * If an email address in column A contains "@qq.com" (case-insensitive),
+            then set column H to "Other - Non-US".
+          * If column J contains "dayofai.org" (case-insensitive), clear that cell.
+      - Force Column H: For any row with Country equal to "China", set column H to "Other - Non-US".
+      - Additional Adjustment: If the email (column A) contains "@qq.com", column F is "United States"
+        and column H is "Other - Non-US", then set column F to "China" and clear columns G and I.
       - Writing the full sorted-and-cleaned data to a CSV file.
       - Splitting and writing data into separate files based on date ranges.
     """
@@ -33,7 +40,6 @@ def process_csv(input_file, output_folder, sort_column):
 
             if fieldnames is None:
                 raise ValueError("No headers found in CSV file.")
-
             if sort_column not in fieldnames:
                 raise ValueError(
                     f"Sort column '{sort_column}' not found in CSV headers"
@@ -92,28 +98,58 @@ def process_csv(input_file, output_folder, sort_column):
                     row[col_f_header] = "United States"
 
             # --- Normalizing Column H Values for US States ---
-            # Ensure there are at least 8 columns so that column H exists.
             if len(fieldnames) < 8:
                 raise ValueError(
                     "CSV does not contain enough columns to check column H."
                 )
             col_h_header = fieldnames[7]
             for row in sorted_data:
-                # Only apply normalization if column F equals "United States"
                 if row[col_f_header].strip() == "United States":
                     state_val = row[col_h_header].strip().lower()
-                    # If the two-letter code is in our mapping, replace it with the full state name
                     if state_val in state_mappings:
                         normalized_state = state_mappings[state_val]
                     else:
                         normalized_state = state_val
-                    # Check if the normalized state is "other - non-us"; if so, clear column F
                     if normalized_state.lower() == "other - non-us":
                         row[col_f_header] = ""
-                    # Convert the normalized state to title case
                     row[col_h_header] = normalized_state.title()
 
-            # Create mapping of date ranges
+            # --- Email and Domain Cleaning ---
+            col_a_header = fieldnames[0]  # Email address (Column A)
+            col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
+
+            for row in sorted_data:
+                email = row[col_a_header].strip()
+                # If email includes "@qq.com" (case-insensitive), set column H to "Other - Non-US"
+                if "@qq.com" in email.lower():
+                    row[col_h_header] = "Other - Non-US"
+                # Clean column J if it contains "dayofai.org" (case-insensitive)
+                if col_j_header:
+                    if "dayofai.org" in row[col_j_header].strip().lower():
+                        row[col_j_header] = ""
+
+            # --- Force Column H for rows where Country is China ---
+            for row in sorted_data:
+                if row[col_f_header].strip() == "China":
+                    row[col_h_header] = "Other - Non-US"
+
+            # --- Additional Adjustment for @qq.com emails ---
+            # If email contains "@qq.com" and Country is "United States" and State is "Other - Non-US",
+            # then set Country to "China" and clear columns G and I.
+            col_g_header = fieldnames[6]  # Column G
+            col_i_header = fieldnames[8]  # Column I
+            for row in sorted_data:
+                email = row[col_a_header].strip()
+                if (
+                    "@qq.com" in email.lower()
+                    and row[col_f_header].strip() == "United States"
+                    and row[col_h_header].strip() == "Other - Non-US"
+                ):
+                    row[col_f_header] = "China"
+                    row[col_g_header] = ""
+                    row[col_i_header] = ""
+
+            # --- Create mapping of date ranges ---
             date_ranges = defaultdict(list)
             for row in sorted_data:
                 date = row[sort_column]
@@ -125,7 +161,7 @@ def process_csv(input_file, output_folder, sort_column):
                     key = f"{date.year}-{date.month:02d}"
                     date_ranges[key].append(row)
 
-            # Write the full sorted and cleaned data to "0-sorted-and-cleaned.csv"
+            # --- Write the full sorted and cleaned data to "0-sorted-and-cleaned.csv" ---
             sorted_cleaned_filename = "0-sorted-and-cleaned.csv"
             with open(
                 os.path.join(output_folder, sorted_cleaned_filename),
@@ -142,7 +178,7 @@ def process_csv(input_file, output_folder, sort_column):
                     )
                     writer.writerow(row_to_write)
 
-            # Process special files first
+            # --- Process special files ---
             for special_file in ["1-pre1015.csv", "2-1031.csv"]:
                 if date_ranges[special_file]:
                     with open(
@@ -160,7 +196,7 @@ def process_csv(input_file, output_folder, sort_column):
                             ].strftime("%Y-%m-%d %H:%M:%S")
                             writer.writerow(row_to_write)
 
-            # Process monthly files starting with index 3
+            # --- Process monthly files starting with index 3 ---
             monthly_dates = sorted(
                 [
                     k
