@@ -14,6 +14,8 @@ def process_csv(input_file, output_folder, sort_column):
       - Cleaning rows where Column D is "Student" or "Parent" by clearing values
         between "Number of Students" and the second occurrence of "Other (please specify in Notes)".
       - Standardizing Column F (Country) values using country_mappings.json.
+      - If Country is blank, assigning a country from a City/Town mapping (city_to_country.json)
+        if the lowercase City/Town value is found in that mapping.
       - Normalizing Column H (State) values for US rows or when a recognized US state is detected:
           * If Column F equals "United States", or if it's blank but Column H contains a recognized US state,
             then set the country to "United States" (if needed) and standardize the state using state_mappings.json.
@@ -52,6 +54,9 @@ def process_csv(input_file, output_folder, sort_column):
         with open("bad_school_entries.json", "r", encoding="utf-8") as bs_file:
             raw_bad_schools = json.load(bs_file)
             bad_school_entries = set(entry.strip().lower() for entry in raw_bad_schools)
+        # Load the City-to-Country mapping (JSON keys are all lowercase)
+        with open("city_to_country.json", "r", encoding="utf-8") as ctc_file:
+            city_to_country = json.load(ctc_file)
 
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
             reader = csv.DictReader(infile)
@@ -106,6 +111,7 @@ def process_csv(input_file, output_folder, sort_column):
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
+            # Standardize Country using country_mappings
             col_f_header = fieldnames[5]  # Country
             for row in sorted_data:
                 country = row[col_f_header].strip()
@@ -115,7 +121,22 @@ def process_csv(input_file, output_folder, sort_column):
                         found_mapping = value
                         break
                 if found_mapping is not None:
-                    row[col_f_header] = found_mapping
+                    # Ensure proper capitalization
+                    row[col_f_header] = found_mapping.title()
+
+            # NEW: If Country is blank, use city_to_country mapping.
+            for row in sorted_data:
+                if row[col_f_header].strip() == "":
+                    city = row[fieldnames[6]].strip()  # City/Town is column G
+                    if city:
+                        city_lower = city.lower()
+                        if city_lower in city_to_country:
+                            row[col_f_header] = city_to_country[city_lower].title()
+
+            # (Optional: Ensure that all non-empty country values are title-cased)
+            for row in sorted_data:
+                if row[col_f_header].strip():
+                    row[col_f_header] = row[col_f_header].strip().title()
 
             col_h_header = fieldnames[7]  # State
             valid_states_all = set()
@@ -288,6 +309,12 @@ def process_csv(input_file, output_folder, sort_column):
                 fieldnames.insert(col_bi_index + 1, computed_stem_header)
 
             def compute_stem_tech_nonstem(row):
+                # If both "I am a..." and "I don't teach at the moment" contain values, return blank.
+                if (
+                    row.get("I am a...", "").strip()
+                    and row.get("I don't teach at the moment", "").strip()
+                ):
+                    return ""
                 tech_cols = [
                     "Computer science",
                     "Robotics",
@@ -346,7 +373,6 @@ def process_csv(input_file, output_folder, sort_column):
                 row[computed_stem_header] = compute_stem_tech_nonstem(row)
 
             # --- NEW STEP 8: Remove unwanted columns ---
-            # Define the set of headers to delete.
             deletion_set = {
                 "Created By (User Id)",
                 "Entry Id",
@@ -377,9 +403,7 @@ def process_csv(input_file, output_folder, sort_column):
                 "TAGS",
                 "Other (please specify in Notes)",
             }
-            # Also delete any header that is exactly "NOTES" (all uppercase)
-            deletion_set.add("NOTES")
-            # (Do not delete "Notes" with only initial capital letter.)
+            deletion_set.add("NOTES")  # remove headers that are exactly "NOTES"
             fieldnames = [header for header in fieldnames if header not in deletion_set]
             for row in sorted_data:
                 for key in list(row.keys()):
@@ -387,7 +411,6 @@ def process_csv(input_file, output_folder, sort_column):
                         del row[key]
 
             # --- NEW STEP 9: Reorder columns into the desired final order ---
-            # Desired final order:
             desired_order = [
                 "Email Address",
                 "Name (First)",
@@ -400,9 +423,10 @@ def process_csv(input_file, output_folder, sort_column):
                 "Zip Code",
                 "Website",
                 "Number of Students",
-                "Computed Grade Band",  # moved to come after Number of Students
-                "Computed STEM/Tech/Non-STEM",  # moved to follow Computed Grade Band
-                "Notes",  # moved to follow Computed STEM/Tech/Non-STEM
+                "I don't teach at the moment",  # moved immediately after Number of Students
+                "Computed Grade Band",
+                "Computed STEM/Tech/Non-STEM",
+                "Notes",
                 "Preschool",
                 "Early elementary K - 2 (5 - 7 years)",
                 "Upper elementary 3 - 5 (8 - 10 years)",
@@ -411,7 +435,6 @@ def process_csv(input_file, output_folder, sort_column):
                 "Post-secondary school/community college (18+)",
                 "College or university",
                 "Adult or vocational education",
-                "I don't teach at the moment",
                 "Computer science",
                 "Robotics",
                 "Chemistry",
@@ -454,12 +477,10 @@ def process_csv(input_file, output_folder, sort_column):
                 "Day of AI",
                 "MIT RAISE",
                 "Interested in research participation",
-                # For the last few columns, swap "Source Url" and "Entry Date":
                 "Source Url",
                 "Entry Date",
                 "OPTIN_TIME",
             ]
-            # Reassign fieldnames to desired_order.
             fieldnames = desired_order
 
             # --- Create mapping of date ranges and write output files ---

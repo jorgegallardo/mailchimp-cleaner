@@ -1,6 +1,7 @@
 {
   "Bahamas (the)": "Bahamas",
   "United Arab Emirates (the)": "United Arab Emirates",
+  "united arab emirates": "United Arab Emirates",
   "Tanzania, the United Republic of": "Tanzania",
   "United States of America": "United States",
   "Virgin Islands, British": "British Virgin Islands",
@@ -11,5 +12,11 @@
   "Korea, Republic of": "South Korea",
   "Republic of Korea": "South Korea",
   "Congo, Democratic Republic of the": "Democratic Republic of the Congo",
-  "Viet Nam": "Vietnam"
+  "Viet Nam": "Vietnam",
+  "switzerland": "Switzerland",
+  "trinidad and tobago": "Trinidad and Tobago",
+  "tunisia": "Tunisia",
+  "turkey": "Turkey",
+  "Türkiye": "Turkey",
+  "united kingdom": "United Kingdom"
 }
