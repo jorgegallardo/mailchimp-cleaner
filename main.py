@@ -70,9 +70,19 @@ def process_csv(input_file, output_folder, sort_column):
             data = []
             for row in reader:
                 try:
-                    row[sort_column] = datetime.strptime(
-                        row[sort_column], "%Y-%m-%d %H:%M:%S"
-                    )
+                    # Use "Entry Date" if it exists and is non-empty; otherwise, use OPTIN_TIME.
+                    if "Entry Date" in row and row["Entry Date"].strip():
+                        # Parse Entry Date (which is in "YYYY-MM-DD" format)
+                        sort_date = datetime.strptime(
+                            row["Entry Date"].strip(), "%Y-%m-%d"
+                        )
+                    else:
+                        # Parse OPTIN_TIME (which is in "YYYY-MM-DD HH:MM:SS" format)
+                        sort_date = datetime.strptime(
+                            row[sort_column].strip(), "%Y-%m-%d %H:%M:%S"
+                        )
+                    # Override the sort column with the computed date so later steps use it.
+                    row[sort_column] = sort_date
                     data.append(row)
                 except ValueError as e:
                     print(
