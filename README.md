@@ -25,3 +25,5 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 - 0.1.3 - US states and other mappings, clear out country for oxymoron: "United States" listed as "Other - Non-US"
 - 0.1.4 - identify @qq.com users as being from China and a non-US state
 - 0.1.5 - added country mappings
+- 0.1.6 - clean and identify US states with missing country (US only)
+- 0.1.7 - identify some "Other - Non-US" states (when City/Town and State match), clear state if non-US country
