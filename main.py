@@ -2,7 +2,24 @@ import csv
 from datetime import datetime
 import os
 import json
+import re
 from collections import defaultdict
+
+
+def normalize_city(city):
+    """
+    Normalize a city name by:
+      - Stripping leading/trailing whitespace.
+      - Converting to lowercase.
+      - Collapsing multiple spaces into one.
+      - Removing non-alphanumeric characters (except spaces and dashes).
+      - Collapsing multiple dashes into a single dash.
+    """
+    normalized = city.strip().lower()
+    normalized = re.sub(r"\s+", " ", normalized)
+    normalized = re.sub(r"[^\w\s-]", "", normalized)
+    normalized = re.sub(r"-+", "-", normalized)
+    return normalized.strip()
 
 
 def process_csv(input_file, output_folder, sort_column):
@@ -10,33 +27,32 @@ def process_csv(input_file, output_folder, sort_column):
     Processes a CSV file by:
       - Reading and parsing the data.
       - Sorting the data based on the sort_column.
-      - Cleaning rows where Column D is "Student" or "Parent" by clearing values
-        between columns "Number of Students" and the second occurrence of
-        "Other (please specify in Notes)".
+      - Cleaning rows where Column D is "Student" or "Parent" by clearing values between
+        "Number of Students" and the second occurrence of "Other (please specify in Notes)".
       - Standardizing Column F (Country) values using country_mappings.json.
       - Normalizing Column H (State) values for US rows or when a recognized US state is detected:
           * If Column F equals "United States", or if it's blank but Column H contains a recognized US state,
-            then set the country to "United States" (if needed) and standardize the state.
-          * This uses state_mappings.json to replace abbreviations with full names.
+            then set the country to "United States" (if needed) and standardize the state using state_mappings.json.
           * If the normalized state is "other - non-us", the State cell is set to blank.
       - Clearing state cells that match a list of bad entries loaded from bad_state_entries.json.
-      - NEW STEP 1: If Country is blank and the City/Town (Column G) and State (Column H) are identical
-            (ignoring case), then clear the State cell.
-      - NEW STEP 2: If Country is not blank (i.e. has a value) and, except for the special case of
-            United States with "New York" in both City/Town and State, if the City/Town and State are identical,
+      - NEW STEP 0.5: Clear bad city entries in Column G using bad_city_entries.json.
+      - NEW STEP 0.6: Additionally, if the City/Town cell is only numeric, clear it.
+      - NEW STEP 1: If Country is blank and City/Town (Column G) equals State (Column H) (ignoring case),
             then clear the State cell.
-      - NEW STEP 3: If Country is not blank and not "United States" and the State cell contains a recognized
-            US state (including "District of Columbia"), then clear the State cell.
+      - NEW STEP 2: For non-blank countries (except the special case New York/New York for US),
+            if City/Town equals State (ignoring case), then clear the State cell.
+      - NEW STEP 3: If Country is not blank and not "United States" and the State cell contains a recognized US state,
+            then clear the State cell.
+      - NEW STEP 4: Preserve New York if Country is "United States" and both City/Town and State equal "New York".
       - Email and Domain Cleaning:
           * If an email address in Column A contains "@qq.com" (case-insensitive), set Column H to blank.
           * If Column J contains "dayofai.org" (case-insensitive), clear that cell.
       - Force Column H for rows where Country is "China": set Column H to blank.
       - Additional adjustment for @qq.com emails:
-          * If the email (Column A) contains "@qq.com", Column F is "United States", and Column H is blank,
-            then set Column F to "China" and clear Columns G and I.
-      - Finally, as a safeguard, any cell in Column H that still equals "Other - Non-US" is cleared.
-      - Writing the full sorted-and-cleaned data to a CSV file.
-      - Splitting and writing data into separate files based on date ranges.
+          * If the email in Column A contains "@qq.com", Country is "United States", and Column H is blank,
+            then set Country to "China" and clear Columns G and I.
+      - FINAL CLEAN-UP: Remove any residual "Other - Non-US" in Column H.
+      - Writing the sorted and cleaned data to a CSV file and splitting by date ranges.
     """
     try:
         # Load state mappings from state_mappings.json
@@ -48,6 +64,10 @@ def process_csv(input_file, output_folder, sort_column):
         # Load bad state entries from bad_state_entries.json
         with open("bad_state_entries.json", "r", encoding="utf-8") as bse_file:
             bad_state_entries = set(json.load(bse_file))
+        # Load and normalize bad city entries from bad_city_entries.json
+        with open("bad_city_entries.json", "r", encoding="utf-8") as bce_file:
+            raw_bad_cities = json.load(bce_file)
+            bad_city_entries = set(normalize_city(entry) for entry in raw_bad_cities)
 
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
             reader = csv.DictReader(infile)
@@ -109,7 +129,6 @@ def process_csv(input_file, output_folder, sort_column):
 
             # --- Normalizing Column H (State) for US States and Inferring Country if Needed ---
             col_h_header = fieldnames[7]  # State
-            # Build a set of recognized US state identifiers (both abbreviations and full names)
             valid_states_all = set()
             for k, v in state_mappings.items():
                 valid_states_all.add(k.lower())
@@ -136,8 +155,20 @@ def process_csv(input_file, output_folder, sort_column):
                 if row[col_h_header].strip() in bad_state_entries:
                     row[col_h_header] = ""
 
-            # --- NEW STEP 1: Clear State if City/Town equals State (ignoring case) for blank Country ---
+            # --- NEW STEP 0.5: Clear Bad City Entries ---
             col_g_header = fieldnames[6]  # City/Town
+            for row in sorted_data:
+                city_norm = normalize_city(row[col_g_header])
+                if city_norm in bad_city_entries:
+                    row[col_g_header] = ""
+
+            # --- NEW STEP 0.6: Clear City/Town if it is just numeric ---
+            for row in sorted_data:
+                city = row[col_g_header].strip()
+                if city.isdigit():
+                    row[col_g_header] = ""
+
+            # --- NEW STEP 1: Clear State if City/Town equals State (ignoring case) for blank Country ---
             for row in sorted_data:
                 if row[col_f_header].strip() == "":
                     city = row[col_g_header].strip()
@@ -145,14 +176,13 @@ def process_csv(input_file, output_folder, sort_column):
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
 
-            # --- NEW STEP 2: For non-blank countries (except for the special case New York/New York),
+            # --- NEW STEP 2: For non-blank countries (except New York/New York for US),
             # if City/Town equals State (ignoring case), then clear the State cell.
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 if country_val and country_val != "United States":
                     city = row[col_g_header].strip()
                     state = row[col_h_header].strip()
-                    # Preserve "New York"/"New York" if the country is United States.
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
 
@@ -160,7 +190,6 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 state_val = row[col_h_header].strip().lower()
-                # For non-US countries, if the state is a recognized US state, clear it.
                 if (
                     country_val
                     and country_val != "United States"
@@ -177,7 +206,7 @@ def process_csv(input_file, output_folder, sort_column):
                         row[col_h_header] = "New York"
 
             # --- Email and Domain Cleaning ---
-            col_a_header = fieldnames[0]  # Email Address (Column A)
+            col_a_header = fieldnames[0]  # Email Address
             col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
             for row in sorted_data:
                 email = row[col_a_header].strip()
@@ -192,7 +221,7 @@ def process_csv(input_file, output_folder, sort_column):
                     row[col_h_header] = ""
 
             # --- Additional Adjustment for @qq.com emails ---
-            col_i_header = fieldnames[8]  # Zip Code (Column I)
+            col_i_header = fieldnames[8]  # Zip Code
             for row in sorted_data:
                 email = row[col_a_header].strip()
                 if (
