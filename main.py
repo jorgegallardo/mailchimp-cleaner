@@ -21,38 +21,34 @@ def process_csv(input_file, output_folder, sort_column):
       - Clearing state cells that match a list of bad entries loaded from bad_state_entries.json.
       - NEW STEP 0.5: Clear bad city entries in Column G using bad_city_entries.json.
       - NEW STEP 0.6: Clear City/Town (Column G) if it is purely numeric.
-      - NEW STEP 0.7: Clear School/Company Name (Column E) if it is purely numeric or if it matches bad school entries (loaded from bad_school_entries.json).
+      - NEW STEP 0.7: Clear School/Company Name (Column E) if it is purely numeric or if it matches bad school entries.
       - NEW STEP 1: If Country is blank and City/Town (Column G) equals State (Column H) (ignoring case), clear the State cell.
       - NEW STEP 2: For non-blank countries (except New York/New York for US), if City/Town equals State (ignoring case), clear the State cell.
-      - NEW STEP 3: If Country is not blank and not "United States" and the State cell contains a recognized US state,
-            clear the State cell.
+      - NEW STEP 3: Clear US State for Non-US Country.
       - NEW STEP 4: Preserve New York if Country is "United States" and both City/Town and State equal "New York".
-      - Email and Domain Cleaning:
-          * If an email address in Column A contains "@qq.com" (case-insensitive), set Column H to blank.
-          * If Column J contains "dayofai.org" (case-insensitive), clear that cell.
-      - Force Column H for rows where Country is "China": set Column H to blank.
-      - Additional adjustment for @qq.com emails:
-          * If the email in Column A contains "@qq.com", Column F is "United States", and Column H is blank,
-            then set Column F to "China" and clear Columns G and I.
+      - Email and Domain Cleaning.
+      - Force Column H for rows where Country is China.
+      - Additional adjustment for @qq.com emails.
       - FINAL CLEAN-UP: Remove any residual "Other - Non-US" in Column H.
+      - NEW STEP 5: Clear columns L-S if "I am a..." is "Teacher / Educator" and column T ("I don't teach at the moment") equals that value.
+      - NEW STEP 6: Compute and insert the "Computed Grade Band" column (based on columns L-P) after column P.
+      - NEW STEP 7: Compute and insert the "Computed STEM/Tech/Non-STEM" column (based on columns W-BI) after column BI.
+      - NEW STEP 8: Remove unwanted columns.
+      - NEW STEP 9: Reorder columns into the desired final order.
       - Writing the full sorted-and-cleaned data to a CSV file.
       - Splitting and writing data into separate files based on date ranges.
     """
     try:
-        # Load state mappings from state_mappings.json
+        # Load mapping files and lists for cleaning
         with open("state_mappings.json", "r", encoding="utf-8") as sm_file:
             state_mappings = json.load(sm_file)
-        # Load country mappings from country_mappings.json
         with open("country_mappings.json", "r", encoding="utf-8") as cm_file:
             country_mappings = json.load(cm_file)
-        # Load bad state entries from bad_state_entries.json
         with open("bad_state_entries.json", "r", encoding="utf-8") as bse_file:
             bad_state_entries = set(json.load(bse_file))
-        # Load bad city entries from bad_city_entries.json and lower-case them
         with open("bad_city_entries.json", "r", encoding="utf-8") as bce_file:
             raw_bad_cities = json.load(bce_file)
             bad_city_entries = set(entry.strip().lower() for entry in raw_bad_cities)
-        # Load bad school entries from bad_school_entries.json and lower-case them
         with open("bad_school_entries.json", "r", encoding="utf-8") as bs_file:
             raw_bad_schools = json.load(bs_file)
             bad_school_entries = set(entry.strip().lower() for entry in raw_bad_schools)
@@ -72,16 +68,13 @@ def process_csv(input_file, output_folder, sort_column):
                 try:
                     # Use "Entry Date" if it exists and is non-empty; otherwise, use OPTIN_TIME.
                     if "Entry Date" in row and row["Entry Date"].strip():
-                        # Parse Entry Date (which is in "YYYY-MM-DD" format)
                         sort_date = datetime.strptime(
                             row["Entry Date"].strip(), "%Y-%m-%d"
                         )
                     else:
-                        # Parse OPTIN_TIME (which is in "YYYY-MM-DD HH:MM:SS" format)
                         sort_date = datetime.strptime(
                             row[sort_column].strip(), "%Y-%m-%d %H:%M:%S"
                         )
-                    # Override the sort column with the computed date so later steps use it.
                     row[sort_column] = sort_date
                     data.append(row)
                 except ValueError as e:
@@ -92,7 +85,7 @@ def process_csv(input_file, output_folder, sort_column):
 
             sorted_data = sorted(data, key=lambda row: row[sort_column])
 
-            # --- Cleaning Step: Remove values if Column D is "Student" or "Parent" ---
+            # --- Cleaning Steps (0.5 through 5) ---
             col_d_header = fieldnames[3]
             try:
                 start_index = fieldnames.index("Number of Students")
@@ -113,7 +106,6 @@ def process_csv(input_file, output_folder, sort_column):
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
-            # --- Standardize Country Names using country_mappings ---
             col_f_header = fieldnames[5]  # Country
             for row in sorted_data:
                 country = row[col_f_header].strip()
@@ -125,7 +117,6 @@ def process_csv(input_file, output_folder, sort_column):
                 if found_mapping is not None:
                     row[col_f_header] = found_mapping
 
-            # --- Normalizing Column H (State) for US States and Inferring Country if Needed ---
             col_h_header = fieldnames[7]  # State
             valid_states_all = set()
             for k, v in state_mappings.items():
@@ -148,25 +139,21 @@ def process_csv(input_file, output_folder, sort_column):
                         normalized_state = normalized_state.title()
                     row[col_h_header] = normalized_state
 
-            # --- Clear Bad State Entries ---
             for row in sorted_data:
                 if row[col_h_header].strip() in bad_state_entries:
                     row[col_h_header] = ""
 
-            # --- NEW STEP 0.5: Clear Bad City Entries ---
             col_g_header = fieldnames[6]  # City/Town
             for row in sorted_data:
                 city_norm = row[col_g_header].strip().lower()
                 if city_norm in bad_city_entries:
                     row[col_g_header] = ""
 
-            # --- NEW STEP 0.6: Clear City/Town if it is just numeric ---
             for row in sorted_data:
                 city = row[col_g_header].strip()
                 if city.isdigit():
                     row[col_g_header] = ""
 
-            # --- NEW STEP 0.7: Clear School/Company Name if it is just numeric or matches bad school entries ---
             col_e_header = fieldnames[4]  # School / Company Name
             for row in sorted_data:
                 school = row[col_e_header].strip()
@@ -175,7 +162,6 @@ def process_csv(input_file, output_folder, sort_column):
                 elif school.lower() in bad_school_entries:
                     row[col_e_header] = ""
 
-            # --- NEW STEP 1: Clear State if City/Town equals State (ignoring case) for blank Country ---
             for row in sorted_data:
                 if row[col_f_header].strip() == "":
                     city = row[col_g_header].strip()
@@ -183,8 +169,6 @@ def process_csv(input_file, output_folder, sort_column):
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
 
-            # --- NEW STEP 2: For non-blank countries (except New York/New York for US),
-            # if City/Town equals State (ignoring case), then clear the State cell.
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 if country_val and country_val != "United States":
@@ -193,7 +177,6 @@ def process_csv(input_file, output_folder, sort_column):
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
 
-            # --- NEW STEP 3: Clear US State for Non-US Country ---
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 state_val = row[col_h_header].strip().lower()
@@ -204,7 +187,6 @@ def process_csv(input_file, output_folder, sort_column):
                 ):
                     row[col_h_header] = ""
 
-            # --- NEW STEP 4: Preserve New York if Country is United States and both City/Town and State are New York ---
             for row in sorted_data:
                 if row[col_f_header].strip() == "United States":
                     city = row[col_g_header].strip()
@@ -212,7 +194,6 @@ def process_csv(input_file, output_folder, sort_column):
                     if city.lower() == "new york" and state.lower() == "new york":
                         row[col_h_header] = "New York"
 
-            # --- Email and Domain Cleaning ---
             col_a_header = fieldnames[0]  # Email Address
             col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
             for row in sorted_data:
@@ -222,12 +203,10 @@ def process_csv(input_file, output_folder, sort_column):
                 if col_j_header and "dayofai.org" in row[col_j_header].strip().lower():
                     row[col_j_header] = ""
 
-            # --- Force Column H for rows where Country is China ---
             for row in sorted_data:
                 if row[col_f_header].strip() == "China":
                     row[col_h_header] = ""
 
-            # --- Additional Adjustment for @qq.com emails ---
             col_i_header = fieldnames[8]  # Zip Code
             for row in sorted_data:
                 email = row[col_a_header].strip()
@@ -240,12 +219,250 @@ def process_csv(input_file, output_folder, sort_column):
                     row[col_g_header] = ""
                     row[col_i_header] = ""
 
-            # --- FINAL CLEAN-UP: Remove any residual "Other - Non-US" ---
             for row in sorted_data:
                 if row[col_h_header].strip().lower() == "other - non-us":
                     row[col_h_header] = ""
 
-            # --- Create mapping of date ranges ---
+            cols_to_clear = [
+                "Preschool",
+                "Early elementary K - 2 (5 - 7 years)",
+                "Upper elementary 3 - 5 (8 - 10 years)",
+                "Middle school 6 - 8 (11 - 13 years)",
+                "High school 9 - 12 (14 - 17 years)",
+                "Post-secondary school/community college (18+)",
+                "College or university",
+                "Adult or vocational education",
+            ]
+            role_header = fieldnames[3]  # "I am a..."
+            teach_status_header = "I don't teach at the moment"
+            for row in sorted_data:
+                if (
+                    row[role_header].strip() == "Teacher / Educator"
+                    and row.get(teach_status_header, "").strip()
+                    == "I don't teach at the moment"
+                ):
+                    for col in cols_to_clear:
+                        if col in row:
+                            row[col] = ""
+
+            # --- NEW STEP 6: Compute and insert the Computed Grade Band column ---
+            computed_grade_header = "Computed Grade Band"
+            try:
+                col_p_index = fieldnames.index("High school 9 - 12 (14 - 17 years)")
+            except ValueError:
+                raise ValueError(
+                    "Header 'High school 9 - 12 (14 - 17 years)' not found."
+                )
+            if computed_grade_header not in fieldnames:
+                fieldnames.insert(col_p_index + 1, computed_grade_header)
+
+            def compute_grade_band(row):
+                colL = row.get("Preschool", "").strip()
+                colM = row.get("Early elementary K - 2 (5 - 7 years)", "").strip()
+                colN = row.get("Upper elementary 3 - 5 (8 - 10 years)", "").strip()
+                colO = row.get("Middle school 6 - 8 (11 - 13 years)", "").strip()
+                colP = row.get("High school 9 - 12 (14 - 17 years)", "").strip()
+                band = ""
+                if colL:
+                    band += "PK"
+                if colM:
+                    band += ", K-2" if band else "K-2"
+                if colN:
+                    band += ", 3-5" if band else "3-5"
+                if colO:
+                    band += ", 6-8" if band else "6-8"
+                if colP:
+                    band += ", 9-12" if band else "9-12"
+                return band
+
+            for row in sorted_data:
+                row[computed_grade_header] = compute_grade_band(row)
+
+            # --- NEW STEP 7: Compute and insert the Computed STEM/Tech/Non-STEM column ---
+            computed_stem_header = "Computed STEM/Tech/Non-STEM"
+            try:
+                col_bi_index = fieldnames.index("Cultural education")
+            except ValueError:
+                raise ValueError("Header 'Cultural education' not found.")
+            if computed_stem_header not in fieldnames:
+                fieldnames.insert(col_bi_index + 1, computed_stem_header)
+
+            def compute_stem_tech_nonstem(row):
+                tech_cols = [
+                    "Computer science",
+                    "Robotics",
+                    "Career and technical education",
+                    "Digital/Information Literacy",
+                ]
+                stem_cols = [
+                    "Chemistry",
+                    "Mathematics",
+                    "Physics",
+                    "Biology",
+                    "Science",
+                    "Engineering",
+                    "Environmental",
+                ]
+                non_stem_cols = [
+                    "Social studies",
+                    "Business",
+                    "Economics",
+                    "Journalism",
+                    "Humanities",
+                    "Art",
+                    "Dance",
+                    "Music",
+                    "English",
+                    "Language (other than English)",
+                    "Foreign languages",
+                    "Literature",
+                    "Performing arts",
+                    "Physical education",
+                    "Civics education",
+                    "Health education",
+                    "Vocational education",
+                    "Agricultural education",
+                    "Legal education",
+                    "Maritime education",
+                    "Military education and training",
+                    "Teacher education",
+                    "Veterinary education",
+                    "Library Media",
+                    "Librarian",
+                    "Special education",
+                    "Deaf education",
+                    "Cultural education",
+                ]
+                selected = []
+                if any(row.get(col, "").strip() for col in tech_cols):
+                    selected.append("Technology")
+                if any(row.get(col, "").strip() for col in stem_cols):
+                    selected.append("STEM")
+                if any(row.get(col, "").strip() for col in non_stem_cols):
+                    selected.append("Non-STEM")
+                return ", ".join(selected)
+
+            for row in sorted_data:
+                row[computed_stem_header] = compute_stem_tech_nonstem(row)
+
+            # --- NEW STEP 8: Remove unwanted columns ---
+            # Define the set of headers to delete.
+            deletion_set = {
+                "Created By (User Id)",
+                "Entry Id",
+                "Date Updated",
+                "Transaction Id",
+                "Payment Amount",
+                "Payment Date",
+                "Payment Status",
+                "Post Id",
+                "User Agent",
+                "User IP",
+                "Name (Prefix)",
+                "Name (Middle)",
+                "MEMBER_RATING",
+                "OPTIN_IP",
+                "CONFIRM_TIME",
+                "CONFIRM_IP",
+                "LATITUDE",
+                "LONGITUDE",
+                "GMTOFF",
+                "DSTOFF",
+                "TIMEZONE",
+                "CC",
+                "REGION",
+                "LAST_CHANGED",
+                "LEID",
+                "EUID",
+                "TAGS",
+                "Other (please specify in Notes)",
+            }
+            # Also delete any header that is exactly "NOTES" (all uppercase)
+            deletion_set.add("NOTES")
+            # (Do not delete "Notes" with only initial capital letter.)
+            fieldnames = [header for header in fieldnames if header not in deletion_set]
+            for row in sorted_data:
+                for key in list(row.keys()):
+                    if key in deletion_set:
+                        del row[key]
+
+            # --- NEW STEP 9: Reorder columns into the desired final order ---
+            # Desired final order:
+            desired_order = [
+                "Email Address",
+                "Name (First)",
+                "Name (Last)",
+                "I am a...",
+                "School / Company Name",
+                "Country",
+                "City/Town",
+                "State",
+                "Zip Code",
+                "Website",
+                "Number of Students",
+                "Computed Grade Band",  # moved to come after Number of Students
+                "Computed STEM/Tech/Non-STEM",  # moved to follow Computed Grade Band
+                "Notes",  # moved to follow Computed STEM/Tech/Non-STEM
+                "Preschool",
+                "Early elementary K - 2 (5 - 7 years)",
+                "Upper elementary 3 - 5 (8 - 10 years)",
+                "Middle school 6 - 8 (11 - 13 years)",
+                "High school 9 - 12 (14 - 17 years)",
+                "Post-secondary school/community college (18+)",
+                "College or university",
+                "Adult or vocational education",
+                "I don't teach at the moment",
+                "Computer science",
+                "Robotics",
+                "Chemistry",
+                "Mathematics",
+                "Physics",
+                "Biology",
+                "Science",
+                "Engineering",
+                "Environmental",
+                "Social studies",
+                "Business",
+                "Economics",
+                "Journalism",
+                "Humanities",
+                "Art",
+                "Dance",
+                "Music",
+                "English",
+                "Language (other than English)",
+                "Foreign languages",
+                "Literature",
+                "Performing arts",
+                "Physical education",
+                "Civics education",
+                "Health education",
+                "Vocational education",
+                "Agricultural education",
+                "Career and technical education",
+                "Legal education",
+                "Maritime education",
+                "Military education and training",
+                "Teacher education",
+                "Veterinary education",
+                "Library Media",
+                "Librarian",
+                "Digital/Information Literacy",
+                "Special education",
+                "Deaf education",
+                "Cultural education",
+                "Day of AI",
+                "MIT RAISE",
+                "Interested in research participation",
+                # For the last few columns, swap "Source Url" and "Entry Date":
+                "Source Url",
+                "Entry Date",
+                "OPTIN_TIME",
+            ]
+            # Reassign fieldnames to desired_order.
+            fieldnames = desired_order
+
+            # --- Create mapping of date ranges and write output files ---
             date_ranges = defaultdict(list)
             for row in sorted_data:
                 date = row[sort_column]
@@ -257,7 +474,6 @@ def process_csv(input_file, output_folder, sort_column):
                     key = f"{date.year}-{date.month:02d}"
                     date_ranges[key].append(row)
 
-            # --- Write the full sorted and cleaned data to "0-sorted-and-cleaned.csv" ---
             sorted_cleaned_filename = "0-sorted-and-cleaned.csv"
             with open(
                 os.path.join(output_folder, sorted_cleaned_filename),
@@ -274,7 +490,6 @@ def process_csv(input_file, output_folder, sort_column):
                     )
                     writer.writerow(row_to_write)
 
-            # --- Process special files ---
             for special_file in ["1-pre1015.csv", "2-1031.csv"]:
                 if date_ranges[special_file]:
                     with open(
@@ -292,7 +507,6 @@ def process_csv(input_file, output_folder, sort_column):
                             ].strftime("%Y-%m-%d %H:%M:%S")
                             writer.writerow(row_to_write)
 
-            # --- Process monthly files starting with index 3 ---
             monthly_dates = sorted(
                 [
                     k
