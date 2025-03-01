@@ -122,6 +122,16 @@ def process_csv(input_file, output_folder, sort_column):
                 if row[col_f_header].strip():
                     row[col_f_header] = row[col_f_header].strip().title()
 
+            # NEW STEP: Apply city_to_country mapping to all rows (not just blank countries).
+            # If the cleaned City/Town value matches a key in the mapping,
+            # update the Country field accordingly.
+            for row in sorted_data:
+                city = row[fieldnames[6]].strip()  # City/Town is column G
+                if city:
+                    city_lower = city.lower()
+                    if city_lower in city_to_country:
+                        row[col_f_header] = city_to_country[city_lower].title()
+
             # Normalize State using state_mappings.json.
             col_h_header = fieldnames[7]  # State
             valid_states_all = set()
