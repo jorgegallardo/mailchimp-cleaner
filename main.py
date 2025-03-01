@@ -2,43 +2,27 @@ import csv
 from datetime import datetime
 import os
 import json
-import re
 from collections import defaultdict
 
 
 def process_csv(input_file, output_folder, sort_column):
     """
-    Processes a CSV file by:
-      - Reading and parsing the data.
-      - Sorting the data based on the sort_column.
-      - Cleaning rows where Column D is "Student" or "Parent" by clearing values
-        between "Number of Students" and the second occurrence of "Other (please specify in Notes)".
-      - Standardizing Column F (Country) values using country_mappings.json.
-      - If Country is blank, assigning a country from a City/Town mapping (city_to_country.json)
-        if the lowercase City/Town value is found in that mapping.
-      - Normalizing Column H (State) values for US rows or when a recognized US state is detected:
-          * If Column F equals "United States", or if it's blank but Column H contains a recognized US state,
-            then set the country to "United States" (if needed) and standardize the state using state_mappings.json.
-          * If the normalized state is "other - non-us", the State cell is set to blank.
-      - Clearing state cells that match a list of bad entries loaded from bad_state_entries.json.
-      - NEW STEP 0.5: Clear bad city entries in Column G using bad_city_entries.json.
-      - NEW STEP 0.6: Clear City/Town (Column G) if it is purely numeric.
-      - NEW STEP 0.7: Clear School/Company Name (Column E) if it is purely numeric or if it matches bad school entries.
-      - NEW STEP 1: If Country is blank and City/Town (Column G) equals State (Column H) (ignoring case), clear the State cell.
-      - NEW STEP 2: For non-blank countries (except New York/New York for US), if City/Town equals State (ignoring case), clear the State cell.
-      - NEW STEP 3: Clear US State for Non-US Country.
-      - NEW STEP 4: Preserve New York if Country is "United States" and both City/Town and State equal "New York".
-      - Email and Domain Cleaning.
-      - Force Column H for rows where Country is China.
-      - Additional adjustment for @qq.com emails.
-      - FINAL CLEAN-UP: Remove any residual "Other - Non-US" in Column H.
-      - NEW STEP 5: Clear columns L-S if "I am a..." is "Teacher / Educator" and column T ("I don't teach at the moment") equals that value.
-      - NEW STEP 6: Compute and insert the "Computed Grade Band" column (based on columns L-P) after column P.
-      - NEW STEP 7: Compute and insert the "Computed STEM/Tech/Non-STEM" column (based on columns W-BI) after column BI.
-      - NEW STEP 8: Remove unwanted columns.
-      - NEW STEP 9: Reorder columns into the desired final order.
-      - Writing the full sorted-and-cleaned data to a CSV file.
-      - Splitting and writing data into separate files based on date ranges.
+    Processes the CSV file by performing cleaning, computed‐column insertion,
+    unwanted column removal, column reordering, and splitting by date ranges.
+    Then, it generates several analysis CSV files:
+
+      1. all_registrations_by_country.csv – counts by Country.
+      2. US_registrations_by_state.csv – counts by State for rows where Country is "United States".
+      3. all_registrations_by_role.csv – counts by "I am a..." (role).
+      4. all_registrations_computed_grade_bands.csv – counts by "Computed Grade Band".
+      5. all_registrations_computed_subject_categories.csv – counts by "Computed STEM/Tech/Non-STEM".
+      6. US_teachers_by_state.csv – counts by State for US teachers.
+      7. US_teachers_computed_grade_bands.csv – counts by "Computed Grade Band" for US teachers.
+      8. US_teachers_computed_subject_categories.csv – counts by "Computed STEM/Tech/Non-STEM" for US teachers.
+      9. US_registrations_by_role.csv – counts by "I am a..." for rows with Country "United States".
+     10. all_schools_locations.csv – unique schools with Country, City/Town, and State (sorted ascending by Country).
+
+    For all analysis CSVs (except all_schools_locations.csv) a TOTAL row is appended.
     """
     try:
         # Load mapping files and lists for cleaning
@@ -54,10 +38,11 @@ def process_csv(input_file, output_folder, sort_column):
         with open("bad_school_entries.json", "r", encoding="utf-8") as bs_file:
             raw_bad_schools = json.load(bs_file)
             bad_school_entries = set(entry.strip().lower() for entry in raw_bad_schools)
-        # Load the City-to-Country mapping (JSON keys are all lowercase)
+        # Load the City-to-Country mapping (keys are all lowercase)
         with open("city_to_country.json", "r", encoding="utf-8") as ctc_file:
             city_to_country = json.load(ctc_file)
 
+        # Read input CSV
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
             reader = csv.DictReader(infile)
             fieldnames = reader.fieldnames
@@ -67,11 +52,10 @@ def process_csv(input_file, output_folder, sort_column):
                 raise ValueError(
                     f"Sort column '{sort_column}' not found in CSV headers"
                 )
-
             data = []
             for row in reader:
                 try:
-                    # Use "Entry Date" if it exists and is non-empty; otherwise, use OPTIN_TIME.
+                    # Use "Entry Date" if available; otherwise, use sort_column.
                     if "Entry Date" in row and row["Entry Date"].strip():
                         sort_date = datetime.strptime(
                             row["Entry Date"].strip(), "%Y-%m-%d"
@@ -90,8 +74,9 @@ def process_csv(input_file, output_folder, sort_column):
 
             sorted_data = sorted(data, key=lambda row: row[sort_column])
 
-            # --- Cleaning Steps (0.5 through 5) ---
-            col_d_header = fieldnames[3]
+            # === Cleaning Steps (NEW STEP 0.5 through NEW STEP 5) ===
+            # Remove values between "Number of Students" and second "Other (please specify in Notes)"
+            col_d_header = fieldnames[3]  # "I am a..."
             try:
                 start_index = fieldnames.index("Number of Students")
             except ValueError:
@@ -111,7 +96,7 @@ def process_csv(input_file, output_folder, sort_column):
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
-            # Standardize Country using country_mappings
+            # Standardize Country using country_mappings.json.
             col_f_header = fieldnames[5]  # Country
             for row in sorted_data:
                 country = row[col_f_header].strip()
@@ -121,7 +106,6 @@ def process_csv(input_file, output_folder, sort_column):
                         found_mapping = value
                         break
                 if found_mapping is not None:
-                    # Ensure proper capitalization
                     row[col_f_header] = found_mapping.title()
 
             # NEW: If Country is blank, use city_to_country mapping.
@@ -133,11 +117,12 @@ def process_csv(input_file, output_folder, sort_column):
                         if city_lower in city_to_country:
                             row[col_f_header] = city_to_country[city_lower].title()
 
-            # (Optional: Ensure that all non-empty country values are title-cased)
+            # Optional: Ensure all non-empty Country values are title-cased.
             for row in sorted_data:
                 if row[col_f_header].strip():
                     row[col_f_header] = row[col_f_header].strip().title()
 
+            # Normalize State using state_mappings.json.
             col_h_header = fieldnames[7]  # State
             valid_states_all = set()
             for k, v in state_mappings.items():
@@ -159,23 +144,23 @@ def process_csv(input_file, output_folder, sort_column):
                     else:
                         normalized_state = normalized_state.title()
                     row[col_h_header] = normalized_state
-
             for row in sorted_data:
                 if row[col_h_header].strip() in bad_state_entries:
                     row[col_h_header] = ""
 
+            # Clean City/Town column.
             col_g_header = fieldnames[6]  # City/Town
             for row in sorted_data:
                 city_norm = row[col_g_header].strip().lower()
                 if city_norm in bad_city_entries:
                     row[col_g_header] = ""
-
             for row in sorted_data:
                 city = row[col_g_header].strip()
                 if city.isdigit():
                     row[col_g_header] = ""
 
-            col_e_header = fieldnames[4]  # School / Company Name
+            # Clean School / Company Name.
+            col_e_header = fieldnames[4]
             for row in sorted_data:
                 school = row[col_e_header].strip()
                 if school.isdigit():
@@ -183,13 +168,13 @@ def process_csv(input_file, output_folder, sort_column):
                 elif school.lower() in bad_school_entries:
                     row[col_e_header] = ""
 
+            # Additional cleaning for blank Country and State conditions.
             for row in sorted_data:
                 if row[col_f_header].strip() == "":
                     city = row[col_g_header].strip()
                     state = row[col_h_header].strip()
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
-
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 if country_val and country_val != "United States":
@@ -197,7 +182,6 @@ def process_csv(input_file, output_folder, sort_column):
                     state = row[col_h_header].strip()
                     if city and state and city.lower() == state.lower():
                         row[col_h_header] = ""
-
             for row in sorted_data:
                 country_val = row[col_f_header].strip()
                 state_val = row[col_h_header].strip().lower()
@@ -207,7 +191,6 @@ def process_csv(input_file, output_folder, sort_column):
                     and state_val in valid_states_all
                 ):
                     row[col_h_header] = ""
-
             for row in sorted_data:
                 if row[col_f_header].strip() == "United States":
                     city = row[col_g_header].strip()
@@ -215,6 +198,7 @@ def process_csv(input_file, output_folder, sort_column):
                     if city.lower() == "new york" and state.lower() == "new york":
                         row[col_h_header] = "New York"
 
+            # Email and Domain Cleaning.
             col_a_header = fieldnames[0]  # Email Address
             col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
             for row in sorted_data:
@@ -223,11 +207,9 @@ def process_csv(input_file, output_folder, sort_column):
                     row[col_h_header] = ""
                 if col_j_header and "dayofai.org" in row[col_j_header].strip().lower():
                     row[col_j_header] = ""
-
             for row in sorted_data:
                 if row[col_f_header].strip() == "China":
                     row[col_h_header] = ""
-
             col_i_header = fieldnames[8]  # Zip Code
             for row in sorted_data:
                 email = row[col_a_header].strip()
@@ -239,11 +221,11 @@ def process_csv(input_file, output_folder, sort_column):
                     row[col_f_header] = "China"
                     row[col_g_header] = ""
                     row[col_i_header] = ""
-
             for row in sorted_data:
                 if row[col_h_header].strip().lower() == "other - non-us":
                     row[col_h_header] = ""
 
+            # NEW STEP 5: Clear specific columns for teachers not teaching.
             cols_to_clear = [
                 "Preschool",
                 "Early elementary K - 2 (5 - 7 years)",
@@ -266,7 +248,7 @@ def process_csv(input_file, output_folder, sort_column):
                         if col in row:
                             row[col] = ""
 
-            # --- NEW STEP 6: Compute and insert the Computed Grade Band column ---
+            # NEW STEP 6: Compute and insert the "Computed Grade Band" column after column P.
             computed_grade_header = "Computed Grade Band"
             try:
                 col_p_index = fieldnames.index("High school 9 - 12 (14 - 17 years)")
@@ -299,7 +281,7 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 row[computed_grade_header] = compute_grade_band(row)
 
-            # --- NEW STEP 7: Compute and insert the Computed STEM/Tech/Non-STEM column ---
+            # NEW STEP 7: Compute and insert the "Computed STEM/Tech/Non-STEM" column after column BI.
             computed_stem_header = "Computed STEM/Tech/Non-STEM"
             try:
                 col_bi_index = fieldnames.index("Cultural education")
@@ -372,7 +354,7 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 row[computed_stem_header] = compute_stem_tech_nonstem(row)
 
-            # --- NEW STEP 8: Remove unwanted columns ---
+            # NEW STEP 8: Remove unwanted columns.
             deletion_set = {
                 "Created By (User Id)",
                 "Entry Id",
@@ -403,14 +385,14 @@ def process_csv(input_file, output_folder, sort_column):
                 "TAGS",
                 "Other (please specify in Notes)",
             }
-            deletion_set.add("NOTES")  # remove headers that are exactly "NOTES"
+            deletion_set.add("NOTES")  # Remove headers that are exactly "NOTES"
             fieldnames = [header for header in fieldnames if header not in deletion_set]
             for row in sorted_data:
                 for key in list(row.keys()):
                     if key in deletion_set:
                         del row[key]
 
-            # --- NEW STEP 9: Reorder columns into the desired final order ---
+            # NEW STEP 9: Reorder columns into the desired final order.
             desired_order = [
                 "Email Address",
                 "Name (First)",
@@ -483,7 +465,7 @@ def process_csv(input_file, output_folder, sort_column):
             ]
             fieldnames = desired_order
 
-            # --- Create mapping of date ranges and write output files ---
+            # Write the cleaned data to output CSV files (with date-range splits).
             date_ranges = defaultdict(list)
             for row in sorted_data:
                 date = row[sort_column]
@@ -494,7 +476,6 @@ def process_csv(input_file, output_folder, sort_column):
                 else:
                     key = f"{date.year}-{date.month:02d}"
                     date_ranges[key].append(row)
-
             sorted_cleaned_filename = "0-sorted-and-cleaned.csv"
             with open(
                 os.path.join(output_folder, sorted_cleaned_filename),
@@ -510,7 +491,6 @@ def process_csv(input_file, output_folder, sort_column):
                         "%Y-%m-%d %H:%M:%S"
                     )
                     writer.writerow(row_to_write)
-
             for special_file in ["1-pre1015.csv", "2-1031.csv"]:
                 if date_ranges[special_file]:
                     with open(
@@ -527,7 +507,6 @@ def process_csv(input_file, output_folder, sort_column):
                                 sort_column
                             ].strftime("%Y-%m-%d %H:%M:%S")
                             writer.writerow(row_to_write)
-
             monthly_dates = sorted(
                 [
                     k
@@ -551,6 +530,235 @@ def process_csv(input_file, output_folder, sort_column):
                             "%Y-%m-%d %H:%M:%S"
                         )
                         writer.writerow(row_to_write)
+
+            # ============================================================
+            # Analysis Outputs
+            # ============================================================
+
+            # 1. all_registrations_by_country.csv
+            country_count = defaultdict(int)
+            for row in sorted_data:
+                country = row.get("Country", "").strip()
+                country_count[country] += 1
+            sorted_country = sorted(
+                country_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_country)
+            with open(
+                os.path.join(output_folder, "all_registrations_by_country.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Country", "Count"])
+                for country, count in sorted_country:
+                    writer.writerow([country, count])
+                writer.writerow(["TOTAL", total])
+
+            # 2. US_registrations_by_state.csv
+            us_state_count = defaultdict(int)
+            for row in sorted_data:
+                if row.get("Country", "").strip() == "United States":
+                    state = row.get("State", "").strip()
+                    us_state_count[state] += 1
+            sorted_us_state = sorted(
+                us_state_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_us_state)
+            with open(
+                os.path.join(output_folder, "US_registrations_by_state.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["State", "Count"])
+                for state, count in sorted_us_state:
+                    writer.writerow([state, count])
+                writer.writerow(["TOTAL", total])
+
+            # 3a. all_registrations_by_role.csv
+            role_count = defaultdict(int)
+            for row in sorted_data:
+                role = row.get("I am a...", "").strip()
+                role_count[role] += 1
+            sorted_role = sorted(role_count.items(), key=lambda x: x[1], reverse=True)
+            total = sum(count for _, count in sorted_role)
+            with open(
+                os.path.join(output_folder, "all_registrations_by_role.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Role", "Count"])
+                for role, count in sorted_role:
+                    writer.writerow([role, count])
+                writer.writerow(["TOTAL", total])
+
+            # 3b. all_registrations_computed_grade_bands.csv
+            grade_band_count = defaultdict(int)
+            for row in sorted_data:
+                grade = row.get("Computed Grade Band", "").strip()
+                grade_band_count[grade] += 1
+            sorted_grade = sorted(
+                grade_band_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_grade)
+            with open(
+                os.path.join(
+                    output_folder, "all_registrations_computed_grade_bands.csv"
+                ),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Computed Grade Band", "Count"])
+                for grade, count in sorted_grade:
+                    writer.writerow([grade, count])
+                writer.writerow(["TOTAL", total])
+
+            # 3c. all_registrations_computed_subject_categories.csv
+            subject_count = defaultdict(int)
+            for row in sorted_data:
+                subj = row.get("Computed STEM/Tech/Non-STEM", "").strip()
+                subject_count[subj] += 1
+            sorted_subject = sorted(
+                subject_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_subject)
+            with open(
+                os.path.join(
+                    output_folder, "all_registrations_computed_subject_categories.csv"
+                ),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Computed STEM/Tech/Non-STEM", "Count"])
+                for subj, count in sorted_subject:
+                    writer.writerow([subj, count])
+                writer.writerow(["TOTAL", total])
+
+            # 4a. US_teachers_by_state.csv
+            us_teacher_rows = [
+                row
+                for row in sorted_data
+                if row.get("Country", "").strip() == "United States"
+                and row.get("I am a...", "").strip() == "Teacher / Educator"
+            ]
+            us_teacher_state_count = defaultdict(int)
+            for row in us_teacher_rows:
+                state = row.get("State", "").strip()
+                us_teacher_state_count[state] += 1
+            sorted_teacher_state = sorted(
+                us_teacher_state_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_teacher_state)
+            with open(
+                os.path.join(output_folder, "US_teachers_by_state.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["State", "Count"])
+                for state, count in sorted_teacher_state:
+                    writer.writerow([state, count])
+                writer.writerow(["TOTAL", total])
+
+            # 4b. US_teachers_computed_grade_bands.csv
+            us_teacher_grade_count = defaultdict(int)
+            for row in us_teacher_rows:
+                grade = row.get("Computed Grade Band", "").strip()
+                us_teacher_grade_count[grade] += 1
+            sorted_teacher_grade = sorted(
+                us_teacher_grade_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_teacher_grade)
+            with open(
+                os.path.join(output_folder, "US_teachers_computed_grade_bands.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Computed Grade Band", "Count"])
+                for grade, count in sorted_teacher_grade:
+                    writer.writerow([grade, count])
+                writer.writerow(["TOTAL", total])
+
+            # 4c. US_teachers_computed_subject_categories.csv
+            us_teacher_subject_count = defaultdict(int)
+            for row in us_teacher_rows:
+                subj = row.get("Computed STEM/Tech/Non-STEM", "").strip()
+                us_teacher_subject_count[subj] += 1
+            sorted_teacher_subject = sorted(
+                us_teacher_subject_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_teacher_subject)
+            with open(
+                os.path.join(
+                    output_folder, "US_teachers_computed_subject_categories.csv"
+                ),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Computed STEM/Tech/Non-STEM", "Count"])
+                for subj, count in sorted_teacher_subject:
+                    writer.writerow([subj, count])
+                writer.writerow(["TOTAL", total])
+
+            # 5. all_schools_locations.csv – unique schools with Country, City/Town, and State, sorted ascending by Country.
+            schools = {}
+            for row in sorted_data:
+                school = row.get("School / Company Name", "").strip()
+                if school and school not in schools:
+                    schools[school] = (
+                        row.get("Country", "").strip(),
+                        row.get("City/Town", "").strip(),
+                        row.get("State", "").strip(),
+                    )
+            sorted_schools = sorted(schools.items(), key=lambda x: x[1][0].lower())
+            with open(
+                os.path.join(output_folder, "all_schools_locations.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    ["School / Company Name", "Country", "City/Town", "State"]
+                )
+                for school, info in sorted_schools:
+                    writer.writerow([school] + list(info))
+
+            # 6. US_registrations_by_role.csv – For rows with Country "United States", count by "I am a..."
+            us_role_count = defaultdict(int)
+            for row in sorted_data:
+                if row.get("Country", "").strip() == "United States":
+                    role = row.get("I am a...", "").strip()
+                    us_role_count[role] += 1
+            sorted_us_role = sorted(
+                us_role_count.items(), key=lambda x: x[1], reverse=True
+            )
+            total = sum(count for _, count in sorted_us_role)
+            with open(
+                os.path.join(output_folder, "US_registrations_by_role.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Role", "Count"])
+                for role, count in sorted_us_role:
+                    writer.writerow([role, count])
+                writer.writerow(["TOTAL", total])
 
     except FileNotFoundError:
         print(f"Error: Input file '{input_file}' not found.")

@@ -30,3 +30,4 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 - 0.1.8 - clean cities, school names
 - 0.2.0 - compute grade bands (PK, K-2, 3-5, 6-8, 9-12) and subject areas (STEM, Tech, non-STEM), delete unwanted columns, rearrange columns
 - 0.2.1 - non-teacher cleaning, added some city to country mappings, bug fixes
+- 0.3.0 - analyze data and create all/US analysis files
