@@ -27,3 +27,4 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 - 0.1.5 - added country mappings
 - 0.1.6 - clean and identify US states with missing country (US only)
 - 0.1.7 - identify some "Other - Non-US" states (when City/Town and State match), clear state if non-US country
+- 0.1.8 - clean cities, school names
