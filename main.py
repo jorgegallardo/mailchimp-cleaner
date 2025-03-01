@@ -14,14 +14,16 @@ def process_csv(input_file, output_folder, sort_column):
         between columns "Number of Students" and the second occurrence of
         "Other (please specify in Notes)".
       - Standardizing column F (Country) values using country_mappings.json.
-      - Normalizing column H (State) values for US rows:
-          * If column F equals "United States", then for column H, if its lowercased value
-            matches a two-letter code in state_mappings.json, replace it with the full state name.
-          * After that, if the normalized column H equals "other - non-us", clear column F.
-          * Finally, convert column H’s value to title case.
+      - Normalizing column H (State) values for US rows or when a recognized US state is detected:
+          * If column F equals "United States", or is blank but Column H contains a recognized US state,
+            then set the country to "United States" and standardize the state.
+          * This standardization uses state_mappings.json to replace abbreviations with full names
+            and converts the result to title case.
+          * If the normalized state equals "other - non-us", the country cell is cleared.
+          * Additionally, if the state cell exactly matches any undesirable entry (e.g., "1", ".", etc.),
+            the cell is cleared.
       - Email and Domain Cleaning:
-          * If an email address in column A contains "@qq.com" (case-insensitive),
-            then set column H to "Other - Non-US".
+          * If an email address in column A contains "@qq.com" (case-insensitive), then set column H to "Other - Non-US".
           * If column J contains "dayofai.org" (case-insensitive), clear that cell.
       - Force Column H: For any row with Country equal to "China", set column H to "Other - Non-US".
       - Additional Adjustment for @qq.com emails:
@@ -108,15 +110,26 @@ def process_csv(input_file, output_folder, sort_column):
                 if found_mapping is not None:
                     row[col_f_header] = found_mapping
 
-            # --- Normalizing Column H Values for US States ---
+            # --- Normalizing Column H Values for US States and Inferring Country if Missing ---
             if len(fieldnames) < 8:
                 raise ValueError(
                     "CSV does not contain enough columns to check column H."
                 )
             col_h_header = fieldnames[7]
+            # Build a set of recognized US state identifiers (both abbreviations and full names) from state_mappings
+            valid_states_all = set()
+            for k, v in state_mappings.items():
+                valid_states_all.add(k.lower())
+                valid_states_all.add(v.lower())
             for row in sorted_data:
-                if row[col_f_header].strip() == "United States":
-                    state_val = row[col_h_header].strip().lower()
+                country_val = row[col_f_header].strip()
+                state_val = row[col_h_header].strip().lower()
+                # If the country is "United States" or is blank but the state is recognized, then update accordingly
+                if country_val == "United States" or (
+                    country_val == "" and state_val in valid_states_all
+                ):
+                    if country_val == "":
+                        row[col_f_header] = "United States"
                     if state_val in state_mappings:
                         normalized_state = state_mappings[state_val]
                     else:
@@ -124,6 +137,19 @@ def process_csv(input_file, output_folder, sort_column):
                     if normalized_state.lower() == "other - non-us":
                         row[col_f_header] = ""
                     row[col_h_header] = normalized_state.title()
+
+            # --- Clear Bad State Entries ---
+            # List of state values to clear (hard-coded)
+            bad_state_entries = {
+                "1",
+                ".",
+                "'- Select -'",
+                "'-- Bitte auswählen (nur für USA / Kan. / Aus.)",
+                "'-",
+            }
+            for row in sorted_data:
+                if row[col_h_header].strip() in bad_state_entries:
+                    row[col_h_header] = ""
 
             # --- Email and Domain Cleaning ---
             col_a_header = fieldnames[0]  # Email address (Column A)
