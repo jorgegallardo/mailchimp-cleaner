@@ -32,3 +32,4 @@ a Python script that processes CSV files containing timestamp data, sorts them c
 - 0.2.1 - non-teacher cleaning, added some city to country mappings, bug fixes
 - 0.3.0 - analyze data and create all/US analysis files
 - 0.3.1 - bug fix - add country to more known cities
+- 0.4.0 - refactored analyses, added cities and further data cleaning
