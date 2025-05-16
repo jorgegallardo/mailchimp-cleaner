@@ -3,6 +3,15 @@ from datetime import datetime
 import os
 import json
 from collections import defaultdict
+import unicodedata
+
+
+def remove_accents(input_str):
+    return "".join(
+        c
+        for c in unicodedata.normalize("NFKD", input_str)
+        if not unicodedata.combining(c)
+    )
 
 
 def process_csv(input_file, output_folder, sort_column):
@@ -41,6 +50,9 @@ def process_csv(input_file, output_folder, sort_column):
         # Load the City-to-Country mapping (keys are all lowercase)
         with open("city_to_country.json", "r", encoding="utf-8") as ctc_file:
             city_to_country = json.load(ctc_file)
+        with open("city_corrections.json", "r", encoding="utf-8") as cc_file:
+            raw = json.load(cc_file)
+            city_corrections = {k.strip().lower(): v for k, v in raw.items()}
 
         # Read input CSV
         with open(input_file, "r", newline="", encoding="utf-8") as infile:
@@ -168,6 +180,19 @@ def process_csv(input_file, output_folder, sort_column):
                 city = row[col_g_header].strip()
                 if city.isdigit():
                     row[col_g_header] = ""
+
+            # === REMOVE ACCENTS FROM CITY/TOWN (ASCII NAME) ===
+            for row in sorted_data:
+                city = row[col_g_header].strip()
+                if city:
+                    row[col_g_header] = remove_accents(city)
+
+            # === CORRECT CITY/TOWN (ASCII NAME) ===
+            for row in sorted_data:
+                city = row[col_g_header].strip()
+                key = city.lower()
+                if key in city_corrections:
+                    row[col_g_header] = city_corrections[key]
 
             # Clean School / Company Name.
             col_e_header = fieldnames[4]
