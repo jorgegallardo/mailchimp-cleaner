@@ -16,24 +16,6 @@ def remove_accents(input_str):
 
 
 def process_csv(input_file, output_folder, sort_column):
-    """
-    Processes the CSV file by performing cleaning, computed‐column insertion,
-    unwanted column removal, column reordering, and splitting by date ranges.
-    Then, it generates several analysis CSV files:
-
-      1. all_registrations_by_country.csv – counts by Country.
-      2. US_registrations_by_state.csv – counts by State for rows where Country is "United States".
-      3. all_registrations_by_role.csv – counts by "I am a..." (role).
-      4. all_registrations_computed_grade_bands.csv – counts by "Computed Grade Band".
-      5. all_registrations_computed_subject_categories.csv – counts by "Computed STEM/Tech/Non-STEM".
-      6. US_teachers_by_state.csv – counts by State for US teachers.
-      7. US_teachers_computed_grade_bands.csv – counts by "Computed Grade Band" for US teachers.
-      8. US_teachers_computed_subject_categories.csv – counts by "Computed STEM/Tech/Non-STEM" for US teachers.
-      9. US_registrations_by_role.csv – counts by "I am a..." for rows with Country "United States".
-     10. all_schools_locations.csv – unique schools with Country, City/Town, and State (sorted ascending by Country).
-
-    For all analysis CSVs (except all_schools_locations.csv) a TOTAL row is appended.
-    """
     try:
         # Load mapping files and lists for cleaning
         with open("state_mappings.json", "r", encoding="utf-8") as sm_file:
@@ -48,7 +30,6 @@ def process_csv(input_file, output_folder, sort_column):
         with open("bad_school_entries.json", "r", encoding="utf-8") as bs_file:
             raw_bad_schools = json.load(bs_file)
             bad_school_entries = set(entry.strip().lower() for entry in raw_bad_schools)
-        # Load the City-to-Country mapping (keys are all lowercase)
         with open("city_to_country.json", "r", encoding="utf-8") as ctc_file:
             city_to_country = json.load(ctc_file)
         with open("city_corrections.json", "r", encoding="utf-8") as cc_file:
@@ -87,8 +68,7 @@ def process_csv(input_file, output_folder, sort_column):
 
             sorted_data = sorted(data, key=lambda row: row[sort_column])
 
-            # === Cleaning Steps (NEW STEP 0.5 through NEW STEP 5) ===
-            # Remove values between "Number of Students" and second "Other (please specify in Notes)"
+            # === Cleaning Steps ===
             col_d_header = fieldnames[3]  # "I am a..."
             try:
                 start_index = fieldnames.index("Number of Students")
@@ -109,7 +89,6 @@ def process_csv(input_file, output_folder, sort_column):
                     for col in fieldnames[start_index : end_index + 1]:
                         row[col] = ""
 
-            # Standardize Country using country_mappings.json.
             col_f_header = fieldnames[5]  # Country
             for row in sorted_data:
                 country = row[col_f_header].strip()
@@ -121,15 +100,13 @@ def process_csv(input_file, output_folder, sort_column):
                 if found_mapping is not None:
                     row[col_f_header] = found_mapping
 
-            # Apply city_to_country mapping to all rows (not just blank countries).
             for row in sorted_data:
-                city = row[fieldnames[6]].strip()  # City/Town is column G
+                city = row[fieldnames[6]].strip()
                 if city:
                     city_lower = city.lower()
                     if city_lower in city_to_country:
                         row[col_f_header] = city_to_country[city_lower]
 
-            # Normalize State using state_mappings.json.
             col_h_header = fieldnames[7]  # State
             valid_states_all = set()
             for k, v in state_mappings.items():
@@ -155,7 +132,6 @@ def process_csv(input_file, output_folder, sort_column):
                 if row[col_h_header].strip() in bad_state_entries:
                     row[col_h_header] = ""
 
-            # Clean City/Town column.
             col_g_header = fieldnames[6]  # City/Town
             for row in sorted_data:
                 city_norm = row[col_g_header].strip().lower()
@@ -166,20 +142,17 @@ def process_csv(input_file, output_folder, sort_column):
                 if city.isdigit():
                     row[col_g_header] = ""
 
-            # === REMOVE ACCENTS FROM CITY/TOWN (ASCII NAME) ===
             for row in sorted_data:
                 city = row[col_g_header].strip()
                 if city:
                     row[col_g_header] = remove_accents(city)
 
-            # === CORRECT CITY/TOWN (ASCII NAME) ===
             for row in sorted_data:
                 city = row[col_g_header].strip()
                 key = city.lower()
                 if key in city_corrections:
                     row[col_g_header] = city_corrections[key]
 
-            # Clean School / Company Name.
             col_e_header = fieldnames[4]
             for row in sorted_data:
                 school = row[col_e_header].strip()
@@ -188,7 +161,6 @@ def process_csv(input_file, output_folder, sort_column):
                 elif school.lower() in bad_school_entries:
                     row[col_e_header] = ""
 
-            # Additional cleaning for blank Country and State conditions.
             for row in sorted_data:
                 if row[col_f_header].strip() == "":
                     city = row[col_g_header].strip()
@@ -218,7 +190,6 @@ def process_csv(input_file, output_folder, sort_column):
                     if city.lower() == "new york" and state.lower() == "new york":
                         row[col_h_header] = "New York"
 
-            # Email and Domain Cleaning.
             col_a_header = fieldnames[0]  # Email Address
             col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
             for row in sorted_data:
@@ -245,7 +216,6 @@ def process_csv(input_file, output_folder, sort_column):
                 if row[col_h_header].strip().lower() == "other - non-us":
                     row[col_h_header] = ""
 
-            # NEW STEP 5: Clear specific columns for teachers not teaching.
             cols_to_clear = [
                 "Preschool",
                 "Early elementary K - 2 (5 - 7 years)",
@@ -268,7 +238,6 @@ def process_csv(input_file, output_folder, sort_column):
                         if col in row:
                             row[col] = ""
 
-            # NEW STEP 6: Compute and insert the "Computed Grade Band" column after column P.
             computed_grade_header = "Computed Grade Band"
             try:
                 col_p_index = fieldnames.index("High school 9 - 12 (14 - 17 years)")
@@ -301,7 +270,6 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 row[computed_grade_header] = compute_grade_band(row)
 
-            # NEW STEP 7: Compute and insert the "Computed STEM/Tech/Non-STEM" column after column BI.
             computed_stem_header = "Computed STEM/Tech/Non-STEM"
             try:
                 col_bi_index = fieldnames.index("Cultural education")
@@ -311,7 +279,6 @@ def process_csv(input_file, output_folder, sort_column):
                 fieldnames.insert(col_bi_index + 1, computed_stem_header)
 
             def compute_stem_tech_nonstem(row):
-                # If both "I am a..." and "I don't teach at the moment" contain values, return blank.
                 if (
                     row.get("I am a...", "").strip()
                     and row.get("I don't teach at the moment", "").strip()
@@ -374,7 +341,65 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 row[computed_stem_header] = compute_stem_tech_nonstem(row)
 
-            # NEW STEP 8: Remove unwanted columns.
+            # ===== CITY NORMALIZATION LOGIC =====
+            name_lookup = {}
+            asciiname_lookup = {}
+            alternates_lookup = {}
+
+            with open("all_cities.csv", "r", encoding="utf-8") as acf:
+                ac_reader = csv.DictReader(acf)
+                for city_row in ac_reader:
+                    country = city_row["country"].strip()
+                    name = city_row["name"].strip()
+                    asciiname = city_row["asciiname"].strip()
+                    alternates = [
+                        alt.strip()
+                        for alt in city_row["alternatenames"].split(",")
+                        if alt.strip()
+                    ]
+                    name_lc = remove_accents(name).lower()
+                    asciiname_lc = remove_accents(asciiname).lower()
+                    name_lookup[(country, name_lc)] = asciiname
+                    asciiname_lookup[(country, asciiname_lc)] = asciiname
+                    for alt in alternates:
+                        alt_lc = remove_accents(alt).lower()
+                        alternates_lookup[(country, alt_lc)] = asciiname
+
+            unsure_rows = []
+            unsure_fieldnames = [
+                "Email Address",
+                "Name (First)",
+                "Name (Last)",
+                "I am a...",
+                "School / Company Name",
+                "Country",
+                "City/Town",
+                "State",
+            ]
+
+            for row in sorted_data:
+                country = row.get("Country", "").strip()
+                city = row.get("City/Town", "").strip()
+                city_norm = remove_accents(city).lower()
+                asciiname = None
+
+                if country and city:
+                    # 1. Perfect match for name
+                    if (country, city_norm) in name_lookup:
+                        asciiname = name_lookup[(country, city_norm)]
+                    # 2. asciiname match (enforce normalization anyway)
+                    elif (country, city_norm) in asciiname_lookup:
+                        asciiname = asciiname_lookup[(country, city_norm)]
+                    # 3. alternatenames match
+                    elif (country, city_norm) in alternates_lookup:
+                        asciiname = alternates_lookup[(country, city_norm)]
+
+                if asciiname:
+                    row["City/Town"] = asciiname
+                else:
+                    unsure_rows.append({k: row.get(k, "") for k in unsure_fieldnames})
+
+            # STEP 8: Remove unwanted columns.
             deletion_set = {
                 "Created By (User Id)",
                 "Entry Id",
@@ -405,14 +430,14 @@ def process_csv(input_file, output_folder, sort_column):
                 "TAGS",
                 "Other (please specify in Notes)",
             }
-            deletion_set.add("NOTES")  # Remove headers that are exactly "NOTES"
+            deletion_set.add("NOTES")
             fieldnames = [header for header in fieldnames if header not in deletion_set]
             for row in sorted_data:
                 for key in list(row.keys()):
                     if key in deletion_set:
                         del row[key]
 
-            # NEW STEP 9: Reorder columns into the desired final order.
+            # STEP 9: Reorder columns into the desired final order.
             desired_order = [
                 "Email Address",
                 "Name (First)",
@@ -426,7 +451,7 @@ def process_csv(input_file, output_folder, sort_column):
                 "Zip Code",
                 "Website",
                 "Number of Students",
-                "I don't teach at the moment",  # moved immediately after Number of Students
+                "I don't teach at the moment",
                 "Computed Grade Band",
                 "Computed STEM/Tech/Non-STEM",
                 "Notes",
@@ -551,6 +576,19 @@ def process_csv(input_file, output_folder, sort_column):
                             "%Y-%m-%d %H:%M:%S"
                         )
                         writer.writerow(row_to_write)
+
+            # === WRITE UNSURE.CSV FOR CITY NORMALIZATION FAILURES ===
+            if unsure_rows:
+                unsure_file = os.path.join(output_folder, "unsure.csv")
+                with open(
+                    unsure_file, "w", newline="", encoding="utf-8"
+                ) as unsure_csvfile:
+                    unsure_writer = csv.DictWriter(
+                        unsure_csvfile, fieldnames=unsure_fieldnames
+                    )
+                    unsure_writer.writeheader()
+                    for row in unsure_rows:
+                        unsure_writer.writerow(row)
 
         run_all_analyses(sorted_data, output_folder)
 
