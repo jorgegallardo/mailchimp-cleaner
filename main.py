@@ -121,23 +121,7 @@ def process_csv(input_file, output_folder, sort_column):
                 if found_mapping is not None:
                     row[col_f_header] = found_mapping
 
-            # NEW: If Country is blank, use city_to_country mapping.
-            for row in sorted_data:
-                if row[col_f_header].strip() == "":
-                    city = row[fieldnames[6]].strip()  # City/Town is column G
-                    if city:
-                        city_lower = city.lower()
-                        if city_lower in city_to_country:
-                            row[col_f_header] = city_to_country[city_lower]
-
-            # Optional: Ensure all non-empty Country values are title-cased.
-            for row in sorted_data:
-                if row[col_f_header].strip():
-                    row[col_f_header] = row[col_f_header].strip()
-
-            # NEW STEP: Apply city_to_country mapping to all rows (not just blank countries).
-            # If the cleaned City/Town value matches a key in the mapping,
-            # update the Country field accordingly.
+            # Apply city_to_country mapping to all rows (not just blank countries).
             for row in sorted_data:
                 city = row[fieldnames[6]].strip()  # City/Town is column G
                 if city:
