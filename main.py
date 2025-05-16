@@ -68,7 +68,7 @@ def process_csv(input_file, output_folder, sort_column):
 
             sorted_data = sorted(data, key=lambda row: row[sort_column])
 
-            # === Cleaning Steps ===
+            # === Cleaning Steps (unchanged) ===
             col_d_header = fieldnames[3]  # "I am a..."
             try:
                 start_index = fieldnames.index("Number of Students")
@@ -341,63 +341,53 @@ def process_csv(input_file, output_folder, sort_column):
             for row in sorted_data:
                 row[computed_stem_header] = compute_stem_tech_nonstem(row)
 
-            # ===== CITY NORMALIZATION LOGIC =====
-            name_lookup = {}
-            asciiname_lookup = {}
-            alternates_lookup = {}
-
+            # ==== US/International city+state clearing logic (name, asciiname, alternatenames) ====
+            us_city_state_set = set()
+            intl_city_country_set = set()
             with open("all_cities.csv", "r", encoding="utf-8") as acf:
                 ac_reader = csv.DictReader(acf)
                 for city_row in ac_reader:
                     country = city_row["country"].strip()
-                    name = city_row["name"].strip()
-                    asciiname = city_row["asciiname"].strip()
-                    alternates = [
-                        alt.strip()
-                        for alt in city_row["alternatenames"].split(",")
-                        if alt.strip()
-                    ]
-                    name_lc = remove_accents(name).lower()
-                    asciiname_lc = remove_accents(asciiname).lower()
-                    name_lookup[(country, name_lc)] = asciiname
-                    asciiname_lookup[(country, asciiname_lc)] = asciiname
-                    for alt in alternates:
-                        alt_lc = remove_accents(alt).lower()
-                        alternates_lookup[(country, alt_lc)] = asciiname
+                    states = city_row.get("state(s)", "").strip()
+                    # Gather all possible normalized city names (name, asciiname, alternatenames)
+                    city_names = set()
+                    for col in ["name", "asciiname", "alternatenames"]:
+                        value = city_row.get(col, "")
+                        if value:
+                            if col == "alternatenames":
+                                for alt in value.split(","):
+                                    city_names.add(remove_accents(alt.strip()).lower())
+                            else:
+                                city_names.add(remove_accents(value.strip()).lower())
 
-            unsure_rows = []
-            unsure_fieldnames = [
-                "Email Address",
-                "Name (First)",
-                "Name (Last)",
-                "I am a...",
-                "School / Company Name",
-                "Country",
-                "City/Town",
-                "State",
-            ]
+                    if country == "United States":
+                        if states:
+                            for st in states.split("|"):
+                                state_clean = remove_accents(st.strip()).lower()
+                                for city_name in city_names:
+                                    if city_name:
+                                        us_city_state_set.add(
+                                            (country, state_clean, city_name)
+                                        )
+                    else:
+                        for city_name in city_names:
+                            if city_name:
+                                intl_city_country_set.add((country, city_name))
 
+            # Apply the clearing logic per row
             for row in sorted_data:
                 country = row.get("Country", "").strip()
-                city = row.get("City/Town", "").strip()
-                city_norm = remove_accents(city).lower()
-                asciiname = None
-
-                if country and city:
-                    # 1. Perfect match for name
-                    if (country, city_norm) in name_lookup:
-                        asciiname = name_lookup[(country, city_norm)]
-                    # 2. asciiname match (enforce normalization anyway)
-                    elif (country, city_norm) in asciiname_lookup:
-                        asciiname = asciiname_lookup[(country, city_norm)]
-                    # 3. alternatenames match
-                    elif (country, city_norm) in alternates_lookup:
-                        asciiname = alternates_lookup[(country, city_norm)]
-
-                if asciiname:
-                    row["City/Town"] = asciiname
+                city = remove_accents(row.get("City/Town", "")).strip().lower()
+                state = remove_accents(row.get("State", "")).strip().lower()
+                if not country or not city:
+                    continue
+                if country == "United States":
+                    if (country, state, city) in us_city_state_set:
+                        row["City/Town"] = ""
                 else:
-                    unsure_rows.append({k: row.get(k, "") for k in unsure_fieldnames})
+                    if (country, city) in intl_city_country_set:
+                        row["City/Town"] = ""
+                        row["State"] = ""
 
             # STEP 8: Remove unwanted columns.
             deletion_set = {
@@ -577,18 +567,7 @@ def process_csv(input_file, output_folder, sort_column):
                         )
                         writer.writerow(row_to_write)
 
-            # === WRITE UNSURE.CSV FOR CITY NORMALIZATION FAILURES ===
-            if unsure_rows:
-                unsure_file = os.path.join(output_folder, "unsure.csv")
-                with open(
-                    unsure_file, "w", newline="", encoding="utf-8"
-                ) as unsure_csvfile:
-                    unsure_writer = csv.DictWriter(
-                        unsure_csvfile, fieldnames=unsure_fieldnames
-                    )
-                    unsure_writer.writeheader()
-                    for row in unsure_rows:
-                        unsure_writer.writerow(row)
+            # (Optional) You can still save unsure_rows here if you kept that step
 
         run_all_analyses(sorted_data, output_folder)
 
