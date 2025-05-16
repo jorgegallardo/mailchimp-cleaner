@@ -433,6 +433,7 @@ def process_csv(input_file, output_folder, sort_column):
                 "Name (First)",
                 "Name (Last)",
                 "I am a...",
+                "Referral Source",
                 "School / Company Name",
                 "Country",
                 "City/Town",
@@ -794,6 +795,37 @@ def process_csv(input_file, output_folder, sort_column):
                 for role, count in sorted_us_role:
                     writer.writerow([role, count])
                 writer.writerow(["TOTAL", total])
+
+            # 7. Count referral sources
+            # Count exact Referral Source values + blanks
+            REFERRAL_SOURCE_CATEGORIES = [
+                "Social Media (e.g., LinkedIn, X, Instagram)",
+                "Email",
+                "Internet Search (e.g., Google, Bing)",
+                "Word of Mouth (e.g., a friend or colleague)",
+            ]
+            referral_source_count = {cat: 0 for cat in REFERRAL_SOURCE_CATEGORIES}
+            referral_source_count["(Blank)"] = 0
+
+            for row in sorted_data:
+                val = row.get("Referral Source", "")
+                val_stripped = val.strip() if val else ""
+                if val_stripped in REFERRAL_SOURCE_CATEGORIES:
+                    referral_source_count[val_stripped] += 1
+                elif val_stripped == "":
+                    referral_source_count["(Blank)"] += 1
+
+            with open(
+                os.path.join(output_folder, "referral_source_analysis.csv"),
+                "w",
+                newline="",
+                encoding="utf-8",
+            ) as f:
+                writer = csv.writer(f)
+                writer.writerow(["Referral Source Category", "Count"])
+                for cat in REFERRAL_SOURCE_CATEGORIES + ["(Blank)"]:
+                    writer.writerow([cat, referral_source_count[cat]])
+                writer.writerow(["TOTAL", sum(referral_source_count.values())])
 
     except FileNotFoundError:
         print(f"Error: Input file '{input_file}' not found.")
