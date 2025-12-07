@@ -74,16 +74,15 @@ def process_csv(input_file, output_folder, sort_column):
                 start_index = fieldnames.index("Number of Students")
             except ValueError:
                 raise ValueError("Header 'Number of Students' not found.")
-            other_indices = [
-                i
-                for i, header in enumerate(fieldnames)
-                if header == "Other (please specify in Notes)"
-            ]
-            if len(other_indices) < 2:
-                raise ValueError(
-                    "Expected at least 2 occurrences of 'Other (please specify in Notes)', but found fewer."
-                )
-            end_index = other_indices[1]
+            
+            # Clear student/parent school-related fields
+            # Find the end column - "Cultural education" is the last subject column before Notes
+            try:
+                end_index = fieldnames.index("Cultural education")
+            except ValueError:
+                # Fallback if Cultural education not found
+                end_index = start_index + 47  # Approximate range
+            
             for row in sorted_data:
                 if row[col_d_header].strip() in ["Student", "Parent"]:
                     for col in fieldnames[start_index : end_index + 1]:
@@ -191,13 +190,11 @@ def process_csv(input_file, output_folder, sort_column):
                         row[col_h_header] = "New York"
 
             col_a_header = fieldnames[0]  # Email Address
-            col_j_header = fieldnames[9] if len(fieldnames) > 9 else None
+            # Note: Website column no longer exists in the CSV, dayofai.org check removed
             for row in sorted_data:
                 email = row[col_a_header].strip()
                 if "@qq.com" in email.lower():
                     row[col_h_header] = ""
-                if col_j_header and "dayofai.org" in row[col_j_header].strip().lower():
-                    row[col_j_header] = ""
             for row in sorted_data:
                 if row[col_f_header].strip() == "China":
                     row[col_h_header] = ""
@@ -322,7 +319,6 @@ def process_csv(input_file, output_folder, sort_column):
                     "Maritime education",
                     "Military education and training",
                     "Teacher education",
-                    "Veterinary education",
                     "Library Media",
                     "Librarian",
                     "Special education",
@@ -389,7 +385,41 @@ def process_csv(input_file, output_folder, sort_column):
                         row["City/Town"] = ""
                         row["State"] = ""
 
-            # STEP 8: Remove unwanted columns.
+            # STEP 8: Merge old columns into new data source columns
+            # Combine "Name (First)" + "Name (Last)" into "Full Name" if Full Name is empty
+            for row in sorted_data:
+                full_name = row.get("Full Name", "").strip()
+                if not full_name:
+                    first = row.get("Name (First)", "").strip()
+                    last = row.get("Name (Last)", "").strip()
+                    if first or last:
+                        row["Full Name"] = f"{first} {last}".strip()
+            
+            # Merge "City/Town" into "City" if City is empty
+            for row in sorted_data:
+                city = row.get("City", "").strip()
+                if not city:
+                    city_town = row.get("City/Town", "").strip()
+                    if city_town:
+                        row["City"] = city_town
+            
+            # Merge "Computed STEM/Tech/Non-STEM" into "Primary Subject" if Primary Subject is empty
+            for row in sorted_data:
+                primary_subject = row.get("Primary Subject", "").strip()
+                if not primary_subject:
+                    computed = row.get("Computed STEM/Tech/Non-STEM", "").strip()
+                    if computed:
+                        row["Primary Subject"] = computed
+            
+            # Merge "Computed Grade Band" into "Ages Taught" if Ages Taught is empty
+            for row in sorted_data:
+                ages_taught = row.get("Ages Taught", "").strip()
+                if not ages_taught:
+                    grade_band = row.get("Computed Grade Band", "").strip()
+                    if grade_band:
+                        row["Ages Taught"] = grade_band
+            
+            # STEP 9: Remove unwanted columns.
             deletion_set = {
                 "Created By (User Id)",
                 "Entry Id",
@@ -418,32 +448,34 @@ def process_csv(input_file, output_folder, sort_column):
                 "LEID",
                 "EUID",
                 "TAGS",
-                "Other (please specify in Notes)",
+                "NOTES",  # Keep only "Notes", remove "NOTES"
             }
-            deletion_set.add("NOTES")
             fieldnames = [header for header in fieldnames if header not in deletion_set]
             for row in sorted_data:
                 for key in list(row.keys()):
                     if key in deletion_set:
                         del row[key]
 
-            # STEP 9: Reorder columns into the desired final order.
+            # STEP 10: Reorder columns into the desired final order.
             desired_order = [
                 "Email Address",
                 "Name (First)",
                 "Name (Last)",
+                "Full Name",
                 "I am a...",
                 "Referral Source",
                 "School / Company Name",
                 "Country",
                 "City/Town",
+                "City",
                 "State",
                 "Zip Code",
-                "Website",
                 "Number of Students",
                 "I don't teach at the moment",
                 "Computed Grade Band",
+                "Ages Taught",
                 "Computed STEM/Tech/Non-STEM",
+                "Primary Subject",
                 "Notes",
                 "Preschool",
                 "Early elementary K - 2 (5 - 7 years)",
@@ -485,7 +517,6 @@ def process_csv(input_file, output_folder, sort_column):
                 "Maritime education",
                 "Military education and training",
                 "Teacher education",
-                "Veterinary education",
                 "Library Media",
                 "Librarian",
                 "Digital/Information Literacy",
@@ -495,7 +526,6 @@ def process_csv(input_file, output_folder, sort_column):
                 "Day of AI",
                 "MIT RAISE",
                 "Interested in research participation",
-                "Source Url",
                 "Entry Date",
                 "OPTIN_TIME",
             ]
